@@ -1,0 +1,44 @@
+# --- Secrets / environment files ---
+.env
+.env.*
+!.env.example
+
+# --- Node / npm ---
+node_modules/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Hardhat (Solidity) ---
+backend/blockchain/artifacts/
+backend/blockchain/cache/
+backend/blockchain/coverage/
+backend/blockchain/coverage.json
+backend/blockchain/typechain/
+backend/blockchain/typechain-types/
+backend/blockchain/gasReporterOutput.json
+
+# --- Next.js ---
+.next/
+out/
+
+# --- Generic build outputs (just in case) ---
+dist/
+build/
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- Misc ---
+*.log
+*.pid
+*.seed
+*.swp
+*.swo
