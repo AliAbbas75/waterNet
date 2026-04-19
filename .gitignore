@@ -3,6 +3,30 @@
 .env.*
 !.env.example
 
+# --- Credentials / keys (never commit) ---
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.kdbx
+
+# Common secret filenames
+secrets.json
+secrets.*.json
+secret.json
+credentials.json
+serviceAccount*.json
+firebase-adminsdk*.json
+
+# Package manager auth tokens
+.npmrc
+!.npmrc.example
+
+# --- Local archives ---
+backend_legacy/
+
 # --- Node / npm ---
 node_modules/
 
