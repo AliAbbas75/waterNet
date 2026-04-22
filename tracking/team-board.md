@@ -5,7 +5,7 @@ This is a lightweight snapshot board. Details live in each owner tracker.
 Reference: [plan.md](../plan.md)
 
 ## Milestones and owners
-- [ ] Milestone A (Backend Foundation) — Shared
+- [x] Milestone A (Backend Foundation) — Shared (completed: RBAC + request validation + logging/requestId + protected admin route)
 - [ ] Milestone B (Device & Plant Management) — Farrukh
 - [ ] Milestone C (IoT Data Acquisition, MQTT+mTLS) — Farrukh
 - [ ] Milestone D (Water Quality Analysis) — Ali

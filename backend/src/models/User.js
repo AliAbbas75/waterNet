@@ -8,6 +8,12 @@ const userSchema = new mongoose.Schema(
       unique: true,
       index: true
     },
+    role: {
+      type: String,
+      enum: ["SUPER_ADMIN", "ADMIN", "MAINTAINER", "PUBLIC"],
+      default: "PUBLIC",
+      index: true
+    },
     email: {
       type: String,
       default: null
