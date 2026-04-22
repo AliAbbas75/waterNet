@@ -1,10 +1,12 @@
 const express = require("express");
 const cors = require("cors");
+const swaggerUi = require("swagger-ui-express");
 
 const { connectDb } = require("./config/db");
 const { assertEnv } = require("./config/env");
 const authRoutes = require("./routes/auth.routes");
 const adminRoutes = require("./routes/admin.routes");
+const { openapi } = require("./docs/openapi");
 const { requestId } = require("./middleware/requestId");
 const { httpLogger } = require("./middleware/httpLogger");
 const plantRoutes = require("./routes/plant.routes");
@@ -41,6 +43,12 @@ app.use(express.json());
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
+
+app.get("/api/docs.json", (_req, res) => {
+  res.json(openapi);
+});
+
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openapi, { explorer: true }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
