@@ -1,0 +1,68 @@
+# --- Secrets / environment files ---
+.env
+.env.*
+!.env.example
+
+# --- Credentials / keys (never commit) ---
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.kdbx
+
+# Common secret filenames
+secrets.json
+secrets.*.json
+secret.json
+credentials.json
+serviceAccount*.json
+firebase-adminsdk*.json
+
+# Package manager auth tokens
+.npmrc
+!.npmrc.example
+
+# --- Local archives ---
+backend_legacy/
+
+# --- Node / npm ---
+node_modules/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Hardhat (Solidity) ---
+backend/blockchain/artifacts/
+backend/blockchain/cache/
+backend/blockchain/coverage/
+backend/blockchain/coverage.json
+backend/blockchain/typechain/
+backend/blockchain/typechain-types/
+backend/blockchain/gasReporterOutput.json
+
+# --- Next.js ---
+.next/
+out/
+
+# --- Generic build outputs (just in case) ---
+dist/
+build/
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- Misc ---
+*.log
+*.pid
+*.seed
+*.swp
+*.swo
