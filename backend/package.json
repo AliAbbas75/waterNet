@@ -15,7 +15,8 @@
     "mongoose": "^8.9.2",
     "mqtt": "^5.15.1",
     "node-cron": "^4.2.1",
-    "run": "^1.5.0"
+    "run": "^1.5.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "nodemon": "^3.1.7"

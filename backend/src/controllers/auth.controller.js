@@ -15,8 +15,16 @@ exports.login = async (req, res, next) => {
   try {
     const { token, walletAddress } = req.body || {};
 
-    if (!token) return res.status(400).json({ error: "token is required" });
-    if (!walletAddress) return res.status(400).json({ error: "walletAddress is required" });
+    if (!token) {
+      return res
+        .status(400)
+        .json({ ok: false, error: "token is required", requestId: req.requestId });
+    }
+    if (!walletAddress) {
+      return res
+        .status(400)
+        .json({ ok: false, error: "walletAddress is required", requestId: req.requestId });
+    }
 
     const walletLower = String(walletAddress).toLowerCase();
 
@@ -39,10 +47,16 @@ exports.login = async (req, res, next) => {
       me?.wallets?.[0]?.address ||
       ""
     ).toLowerCase();
-    if (!thirdwebWallet) return res.status(401).json({ error: "Thirdweb token missing wallet" });
+    if (!thirdwebWallet) {
+      return res
+        .status(401)
+        .json({ ok: false, error: "Thirdweb token missing wallet", requestId: req.requestId });
+    }
 
     if (thirdwebWallet !== walletLower) {
-      return res.status(401).json({ error: "Wallet does not match token" });
+      return res
+        .status(401)
+        .json({ ok: false, error: "Wallet does not match token", requestId: req.requestId });
     }
 
     const profile = Array.isArray(me.profiles) && me.profiles.length ? me.profiles[0] : null;
@@ -61,13 +75,15 @@ exports.login = async (req, res, next) => {
       { wallet_address: walletLower },
       {
         $set: update,
-        $setOnInsert: { active: true }
+        $setOnInsert: { active: true, role: "PUBLIC" }
       },
       { new: true, upsert: true }
     );
 
     if (user.active === false) {
-      return res.status(403).json({ error: "Account disabled" });
+      return res
+        .status(403)
+        .json({ ok: false, error: "Account disabled", requestId: req.requestId });
     }
 
     const jwtToken = jwt.sign(
@@ -76,14 +92,14 @@ exports.login = async (req, res, next) => {
       { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
     );
 
-    return res.json({ token: jwtToken, user });
+    return res.json({ ok: true, token: jwtToken, user });
   } catch (err) {
     next(err);
   }
 };
 
 exports.me = async (req, res) => {
-  res.json({ user: req.user });
+  res.json({ ok: true, user: req.user });
 };
 
 exports.logout = async (_req, res) => {
