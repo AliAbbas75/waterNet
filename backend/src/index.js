@@ -16,6 +16,9 @@ const inventoryRoutes = require("./routes/inventory.routes");
 const alertRoutes = require("./routes/alert.routes");
 const analysisRoutes = require("./routes/analysis.routes");
 const { connectMqtt } = require("./services/mqtt.service");
+const adminRoutes = require("./routes/admin.routes");
+const { requestId } = require("./middleware/requestId");
+const { httpLogger } = require("./middleware/httpLogger");
 
 const app = express();
 
@@ -58,6 +61,7 @@ app.use("/api/maintenance/tasks", maintenanceRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/analysis", analysisRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.use((err, req, res, _next) => {
   const status = err.statusCode || 500;
