@@ -54,6 +54,7 @@ app.get("/api/docs.json", (_req, res) => {
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openapi, { explorer: true }));
 
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/api/plants", plantRoutes);
 app.use("/api/devices", deviceRoutes);
 app.use("/api/maintenance/tasks", maintenanceRoutes);
