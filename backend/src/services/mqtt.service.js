@@ -1,29 +1,65 @@
-const mqtt = require('mqtt');
-const cron = require('node-cron');
-const TelemetryReading = require('../models/TelemetryReading');
-const Device = require('../models/Device');
-const { evaluateQuality } = require('../controllers/analysis.controller');
-const Alert = require('../models/Alert');
+const fs = require("fs");
+const mqtt = require("mqtt");
+const cron = require("node-cron");
+const TelemetryReading = require("../models/TelemetryReading");
+const Device = require("../models/Device");
+const { evaluateQuality } = require("../controllers/analysis.controller");
+const Alert = require("../models/Alert");
 
 let client = null;
 
-function connectMqtt() {
-  const brokerUrl = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
-  client = mqtt.connect(brokerUrl);
+function readBoolEnv(name, defaultValue) {
+  const value = process.env[name];
+  if (value === undefined) return defaultValue;
+  return String(value).toLowerCase() === "true";
+}
 
-  client.on('connect', () => {
-    console.log('Connected to MQTT broker');
+function tryParseJson(buffer) {
+  const text = buffer.toString();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function connectMqtt() {
+  const brokerUrl = process.env.MQTT_BROKER_URL || "mqtt://localhost:1883";
+  const options = {
+    username: process.env.MQTT_USERNAME || undefined,
+    password: process.env.MQTT_PASSWORD || undefined,
+    clientId:
+      process.env.MQTT_CLIENT_ID || `waternet-backend-${Math.random().toString(16).slice(2)}`,
+    reconnectPeriod: Number(process.env.MQTT_RECONNECT_PERIOD_MS || 2000)
+  };
+
+  if (brokerUrl.startsWith("mqtts://")) {
+    options.rejectUnauthorized = readBoolEnv("MQTT_TLS_REJECT_UNAUTHORIZED", true);
+
+    const caPath = process.env.MQTT_CA_CERT_PATH;
+    if (caPath) {
+      try {
+        options.ca = fs.readFileSync(caPath);
+      } catch (err) {
+        console.error("Failed to read MQTT CA cert at MQTT_CA_CERT_PATH:", err);
+      }
+    }
+  }
+
+  client = mqtt.connect(brokerUrl, options);
+
+  client.on("connect", () => {
+    console.log("Connected to MQTT broker");
 
     // Subscribe to telemetry and health topics
-    client.subscribe('waternet/v1/devices/+/telemetry', { qos: 1 });
-    client.subscribe('waternet/v1/devices/+/health', { qos: 1 });
-    client.subscribe('waternet/v1/devices/+/lwt', { qos: 1 });
+    client.subscribe("waternet/v1/devices/+/telemetry", { qos: 1 });
+    client.subscribe("waternet/v1/devices/+/health", { qos: 1 });
+    client.subscribe("waternet/v1/devices/+/lwt", { qos: 1 });
   });
 
-  client.on('message', async (topic, message) => {
+  client.on("message", async (topic, message) => {
     try {
-      const payload = JSON.parse(message.toString());
-      const parts = topic.split('/');
+      const parts = topic.split("/");
       const deviceId = parts[3];
 
       if (!deviceId) return;
@@ -35,52 +71,63 @@ function connectMqtt() {
         return;
       }
 
-      if (topic.endsWith('/telemetry')) {
+      if (topic.endsWith("/telemetry")) {
+        const payload = tryParseJson(message);
+        if (!payload) {
+          console.error("Invalid telemetry JSON payload for topic:", topic);
+          return;
+        }
         await handleTelemetry(device, payload);
-      } else if (topic.endsWith('/health')) {
+      } else if (topic.endsWith("/health")) {
+        const payload = tryParseJson(message);
+        if (!payload) {
+          console.error("Invalid health JSON payload for topic:", topic);
+          return;
+        }
         await handleHealth(device, payload);
-      } else if (topic.endsWith('/lwt')) {
-        await handleLwt(device, payload);
+      } else if (topic.endsWith("/lwt")) {
+        const payloadText = message.toString();
+        await handleLwt(device, payloadText);
       }
     } catch (err) {
-      console.error('Error processing MQTT message:', err);
+      console.error("Error processing MQTT message:", err);
     }
   });
 
-  client.on('error', (err) => {
-    console.error('MQTT error:', err);
+  client.on("error", (err) => {
+    console.error("MQTT error:", err);
   });
 
-  client.on('close', () => {
-    console.log('MQTT connection closed');
+  client.on("close", () => {
+    console.log("MQTT connection closed");
   });
 
   // Schedule availability check every minute
-  cron.schedule('* * * * *', async () => {
+  cron.schedule("* * * * *", async () => {
     try {
       const gracePeriod = 6 * 60 * 1000; // 6 minutes
       const cutoff = new Date(Date.now() - gracePeriod);
 
       const devicesToOffline = await Device.find({
         lastSeenAt: { $lt: cutoff },
-        availability: 'AVAILABLE',
+        availability: "AVAILABLE",
         disabled: false
       });
 
       for (const device of devicesToOffline) {
-        await Device.findByIdAndUpdate(device._id, { availability: 'UNAVAILABLE' });
+        await Device.findByIdAndUpdate(device._id, { availability: "UNAVAILABLE" });
 
         // Create alert
         const existing = await Alert.findOne({
-          type: 'DEVICE_OFFLINE',
+          type: "DEVICE_OFFLINE",
           deviceId: device._id,
-          status: { $in: ['OPEN', 'ACK'] }
+          status: { $in: ["OPEN", "ACK"] }
         });
 
         if (!existing) {
           await Alert.create({
-            type: 'DEVICE_OFFLINE',
-            severity: 'WARN',
+            type: "DEVICE_OFFLINE",
+            severity: "WARN",
             plantId: device.plantId,
             deviceId: device._id,
             message: `Device ${device.deviceId} is offline`
@@ -88,7 +135,7 @@ function connectMqtt() {
         }
       }
     } catch (err) {
-      console.error('Error in availability check:', err);
+      console.error("Error in availability check:", err);
     }
   });
 }
@@ -97,7 +144,7 @@ async function handleTelemetry(device, payload) {
   const { schemaVersion, timestamp, readings } = payload;
 
   if (!schemaVersion || !timestamp || !readings) {
-    console.error('Invalid telemetry payload');
+    console.error("Invalid telemetry payload");
     return;
   }
 
@@ -108,7 +155,7 @@ async function handleTelemetry(device, payload) {
     readings,
     ingestMeta: {
       schemaVersion,
-      protocol: 'MQTT'
+      protocol: "MQTT"
     }
   });
 
@@ -117,8 +164,12 @@ async function handleTelemetry(device, payload) {
   // Update device lastSeenAt
   await Device.findByIdAndUpdate(device._id, { lastSeenAt: new Date() });
 
-  // Evaluate water quality
-  // await evaluateQuality(device.plantId, device._id);
+  // Evaluate water quality (best-effort)
+  try {
+    await evaluateQuality(device.plantId, device._id);
+  } catch (err) {
+    console.error("Error evaluating water quality:", err);
+  }
 
   // Publish retained latest metrics
   if (client && client.connected) {
@@ -142,7 +193,7 @@ async function handleHealth(device, payload) {
   const { schemaVersion, timestamp, health } = payload;
 
   if (!schemaVersion || !timestamp || !health) {
-    console.error('Invalid health payload');
+    console.error("Invalid health payload");
     return;
   }
 
@@ -154,7 +205,7 @@ async function handleHealth(device, payload) {
     health,
     ingestMeta: {
       schemaVersion,
-      protocol: 'MQTT'
+      protocol: "MQTT"
     }
   });
 
@@ -163,7 +214,7 @@ async function handleHealth(device, payload) {
   // Update device lastSeenAt and availability
   await Device.findByIdAndUpdate(device._id, {
     lastSeenAt: new Date(),
-    availability: 'AVAILABLE'
+    availability: "AVAILABLE"
   });
 
   // Publish retained online status
@@ -172,7 +223,7 @@ async function handleHealth(device, payload) {
       `waternet/v1/devices/${device.deviceId}/status`,
       JSON.stringify({
         deviceId: device.deviceId,
-        status: 'online',
+        status: "online",
         lastSeenAt: new Date().toISOString(),
         schemaVersion
       }),
@@ -183,11 +234,11 @@ async function handleHealth(device, payload) {
   console.log(`Stored health for device ${device.deviceId}`);
 }
 
-async function handleLwt(device, payload) {
-  // LWT payload is usually "offline" or similar
-  if (payload === 'offline') {
+async function handleLwt(device, payloadText) {
+  // LWT payload is often a raw string like "offline"
+  if (String(payloadText).trim().toLowerCase() === "offline") {
     await Device.findByIdAndUpdate(device._id, {
-      availability: 'UNAVAILABLE'
+      availability: "UNAVAILABLE"
     });
 
     // Publish retained offline status
@@ -196,7 +247,7 @@ async function handleLwt(device, payload) {
         `waternet/v1/devices/${device.deviceId}/status`,
         JSON.stringify({
           deviceId: device.deviceId,
-          status: 'offline',
+          status: "offline",
           lastSeenAt: device.lastSeenAt ? device.lastSeenAt.toISOString() : null
         }),
         { qos: 1, retain: true }
@@ -210,120 +261,6 @@ async function handleLwt(device, payload) {
 function disconnectMqtt() {
   if (client) {
     client.end();
-  }
-}
-
-async function handleTelemetry(device, payload) {
-  const { schemaVersion, timestamp, readings } = payload;
-
-  if (!schemaVersion || !timestamp || !readings) {
-    console.error('Invalid telemetry payload');
-    return;
-  }
-
-  const telemetry = new TelemetryReading({
-    deviceId: device.deviceId,
-    plantId: device.plantId,
-    timestamp: new Date(timestamp),
-    readings,
-    ingestMeta: {
-      schemaVersion,
-      protocol: 'MQTT'
-    }
-  });
-
-  await telemetry.save();
-
-  // Update device lastSeenAt
-  await Device.findByIdAndUpdate(device._id, { lastSeenAt: new Date() });
-
-  // Evaluate water quality
-  await evaluateQuality(device.plantId, device._id);
-
-  // Publish retained latest metrics
-  if (client && client.connected) {
-    client.publish(
-      `waternet/v1/devices/${device.deviceId}/latest`,
-      JSON.stringify({
-        deviceId: device.deviceId,
-        plantId: device.plantId,
-        timestamp,
-        readings,
-        schemaVersion
-      }),
-      { qos: 1, retain: true }
-    );
-  }
-
-  console.log(`Stored telemetry for device ${device.deviceId}`);
-}
-
-async function handleHealth(device, payload) {
-  const { schemaVersion, timestamp, health } = payload;
-
-  if (!schemaVersion || !timestamp || !health) {
-    console.error('Invalid health payload');
-    return;
-  }
-
-  // Store as telemetry with health
-  const telemetry = new TelemetryReading({
-    deviceId: device.deviceId,
-    plantId: device.plantId,
-    timestamp: new Date(timestamp),
-    health,
-    ingestMeta: {
-      schemaVersion,
-      protocol: 'MQTT'
-    }
-  });
-
-  await telemetry.save();
-
-  // Update device lastSeenAt and availability
-  await Device.findByIdAndUpdate(device._id, {
-    lastSeenAt: new Date(),
-    availability: 'AVAILABLE'
-  });
-
-  // Publish retained online status
-  if (client && client.connected) {
-    client.publish(
-      `waternet/v1/devices/${device.deviceId}/status`,
-      JSON.stringify({
-        deviceId: device.deviceId,
-        status: 'online',
-        lastSeenAt: new Date().toISOString(),
-        schemaVersion
-      }),
-      { qos: 1, retain: true }
-    );
-  }
-
-  console.log(`Stored health for device ${device.deviceId}`);
-}
-
-async function handleLwt(device, payload) {
-  // LWT payload is usually "offline" or similar
-  if (payload === 'offline') {
-    await Device.findByIdAndUpdate(device._id, {
-      availability: 'UNAVAILABLE'
-    });
-
-    // Publish retained offline status
-    if (client && client.connected) {
-      client.publish(
-        `waternet/v1/devices/${device.deviceId}/status`,
-        JSON.stringify({
-          deviceId: device.deviceId,
-          status: 'offline',
-          lastSeenAt: device.lastSeenAt ? device.lastSeenAt.toISOString() : null
-        }),
-        { qos: 1, retain: true }
-      );
-    }
-
-    console.log(`Device ${device.deviceId} went offline (LWT)`);
   }
 }
 
