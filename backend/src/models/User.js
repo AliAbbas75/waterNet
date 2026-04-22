@@ -28,6 +28,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null
     },
+    role: {
+      type: String,
+      enum: ['SUPER_ADMIN', 'ADMIN', 'MAINTAINER', 'PUBLIC'],
+      default: 'PUBLIC'
+    },
     last_login_at: {
       type: Date,
       default: null
