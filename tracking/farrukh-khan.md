@@ -13,9 +13,9 @@ Milestone mapping (see [plan.md](../plan.md)):
 - Milestone I — Maintainer Interface
 
 ## Status (edit as you go)
-- Current focus: Completed all Farrukh's milestones (B, C, D, E, F, G, I)
-- Blockers: None
-- Next milestone target: Ready for vertical slice demo
+- Current focus: Complete Milestone C broker-level mTLS CN enforcement.
+- Blockers: Need EMQX authz policy to bind CN to topic prefix.
+- Next milestone target: Finish Milestone C CN binding, then start Milestone I UI.
 
 ## Checklist — Milestone B (Device & Plant Management)
 - [x] Implement `Plant` model + admin CRUD
@@ -41,11 +41,13 @@ Locked decisions summary:
 Tasks:
 - [x] Define topic naming + payload schema (`schemaVersion`, timestamps)
 - [x] Implement backend MQTT consumer/subscriber
-- [x] Enforce CN-to-deviceId mapping (reject mismatch)
+- [ ] Enforce CN-to-deviceId mapping (reject mismatch)
 - [x] Persist telemetry readings + health heartbeats
 - [x] Availability rules engine (heartbeat + LWT + grace window)
 - [x] Publish retained "latest metrics" and "Online" status from backend
 - [x] Write local simulation notes (how to test with a client certificate)
+
+Gap: Broker-level mTLS CN enforcement is still pending; backend now checks payload deviceId vs topic.
 
 ### Local Simulation Notes
 For development/testing without real devices:
@@ -77,11 +79,11 @@ For development/testing without real devices:
 - [x] Inventory decrement on resolve using MongoDB transaction
 
 ## Checklist — Milestone I (Maintainer Interface)
-- [x] Tasks list (mine)
-- [x] Task detail: device/plant + recent readings
-- [x] Update status to IN_PROGRESS
-- [x] Add maintenance log + materials
-- [x] Resolve task flow
+- [ ] Tasks list (mine)
+- [ ] Task detail: device/plant + recent readings
+- [ ] Update status to IN_PROGRESS
+- [ ] Add maintenance log + materials
+- [ ] Resolve task flow
 
 ## Checklist — Milestone G (Inventory Management)
 - [x] Implement `InventoryItem` model + admin CRUD

@@ -1,5 +1,6 @@
 const express = require("express");
 const { requireRole } = require("../middleware/roleGuard");
+const protect = require("../middleware/protect");
 const {
   createTask,
   assignTask,
@@ -23,20 +24,15 @@ adminRouter.get("/", getTasks);
 
 // Maintainer routes (also allow ADMIN)
 const maintainerRouter = express.Router();
-maintainerRouter.use((req, res, next) => {
-  if (req.user.role === 'ADMIN' || req.user.role === 'MAINTAINER') {
-    return next();
-  }
-  return res.status(403).json({ error: 'Access denied' });
-});
+maintainerRouter.use(requireRole('MAINTAINER'));
 maintainerRouter.get("/mine", getMyTasks);
 maintainerRouter.patch("/:id/start", startTask);
 maintainerRouter.post("/:id/logs", addLog);
 maintainerRouter.post("/:id/resolve", resolveTask);
 
 // Shared routes (admin or assigned maintainer)
-router.get("/:id", getTask);
-router.get("/:id/logs", getLogs);
+router.get("/:id", protect, getTask);
+router.get("/:id/logs", protect, getLogs);
 
 // Mount sub-routers
 router.use("/", adminRouter);

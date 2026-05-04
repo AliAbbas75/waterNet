@@ -5,7 +5,6 @@ const swaggerUi = require("swagger-ui-express");
 const { connectDb } = require("./config/db");
 const { assertEnv } = require("./config/env");
 const authRoutes = require("./routes/auth.routes");
-const adminRoutes = require("./routes/admin.routes");
 const { openapi } = require("./docs/openapi");
 const { requestId } = require("./middleware/requestId");
 const { httpLogger } = require("./middleware/httpLogger");
@@ -17,8 +16,6 @@ const alertRoutes = require("./routes/alert.routes");
 const analysisRoutes = require("./routes/analysis.routes");
 const { connectMqtt } = require("./services/mqtt.service");
 const adminRoutes = require("./routes/admin.routes");
-const { requestId } = require("./middleware/requestId");
-const { httpLogger } = require("./middleware/httpLogger");
 
 const app = express();
 
@@ -61,7 +58,6 @@ app.use("/api/maintenance/tasks", maintenanceRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/analysis", analysisRoutes);
-app.use("/api/admin", adminRoutes);
 
 app.use((err, req, res, _next) => {
   const status = err.statusCode || 500;
@@ -75,8 +71,16 @@ const port = process.env.PORT || 4000;
 (async () => {
   assertEnv();
   await connectDb();
-  connectMqtt();
-  app.listen(port, () => {
+  await connectMqtt();
+  const server = app.listen(port, () => {
     console.log(`waterNet backend listening on :${port}`);
+  });
+  server.on("error", (err) => {
+    if (err && err.code === "EADDRINUSE") {
+      console.error(`Port ${port} is already in use. Stop the other process or set PORT to a free port.`);
+      process.exit(1);
+    }
+    console.error("Server failed to start:", err);
+    process.exit(1);
   });
 })();

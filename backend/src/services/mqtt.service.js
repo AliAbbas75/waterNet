@@ -7,6 +7,7 @@ const { evaluateQuality } = require("../controllers/analysis.controller");
 const Alert = require("../models/Alert");
 
 let client = null;
+let connectPromise = null;
 
 function readBoolEnv(name, defaultValue) {
   const value = process.env[name];
@@ -23,7 +24,16 @@ function tryParseJson(buffer) {
   }
 }
 
+function isDeviceIdMismatch(topicDeviceId, payload) {
+  if (!payload || payload.deviceId === undefined || payload.deviceId === null) {
+    return false;
+  }
+  return String(payload.deviceId) !== String(topicDeviceId);
+}
+
 function connectMqtt() {
+  if (connectPromise) return connectPromise;
+
   const brokerUrl = process.env.MQTT_BROKER_URL || "mqtt://localhost:1883";
   const options = {
     username: process.env.MQTT_USERNAME || undefined,
@@ -47,6 +57,32 @@ function connectMqtt() {
   }
 
   client = mqtt.connect(brokerUrl, options);
+
+  connectPromise = new Promise((resolve, reject) => {
+    const timeoutMs = Number(process.env.MQTT_CONNECT_TIMEOUT_MS || 10000);
+    const timeout = setTimeout(() => {
+      reject(new Error(`MQTT connect timeout after ${timeoutMs}ms (${brokerUrl})`));
+    }, timeoutMs);
+
+    function clear() {
+      clearTimeout(timeout);
+      client.off("connect", onConnect);
+      client.off("error", onInitialError);
+    }
+
+    function onConnect() {
+      clear();
+      resolve(client);
+    }
+
+    function onInitialError(err) {
+      clear();
+      reject(err);
+    }
+
+    client.on("connect", onConnect);
+    client.on("error", onInitialError);
+  });
 
   client.on("connect", () => {
     console.log("Connected to MQTT broker");
@@ -77,11 +113,19 @@ function connectMqtt() {
           console.error("Invalid telemetry JSON payload for topic:", topic);
           return;
         }
+        if (isDeviceIdMismatch(deviceId, payload)) {
+          console.error("Telemetry deviceId mismatch for topic:", topic);
+          return;
+        }
         await handleTelemetry(device, payload);
       } else if (topic.endsWith("/health")) {
         const payload = tryParseJson(message);
         if (!payload) {
           console.error("Invalid health JSON payload for topic:", topic);
+          return;
+        }
+        if (isDeviceIdMismatch(deviceId, payload)) {
+          console.error("Health deviceId mismatch for topic:", topic);
           return;
         }
         await handleHealth(device, payload);
@@ -138,6 +182,8 @@ function connectMqtt() {
       console.error("Error in availability check:", err);
     }
   });
+
+  return connectPromise;
 }
 
 async function handleTelemetry(device, payload) {
@@ -149,6 +195,7 @@ async function handleTelemetry(device, payload) {
   }
 
   const telemetry = new TelemetryReading({
+    deviceRef: device._id,
     deviceId: device.deviceId,
     plantId: device.plantId,
     timestamp: new Date(timestamp),
@@ -166,7 +213,7 @@ async function handleTelemetry(device, payload) {
 
   // Evaluate water quality (best-effort)
   try {
-    await evaluateQuality(device.plantId, device._id);
+    await evaluateQuality(device.plantId, device._id, device.deviceId);
   } catch (err) {
     console.error("Error evaluating water quality:", err);
   }
@@ -199,6 +246,7 @@ async function handleHealth(device, payload) {
 
   // Store as telemetry with health
   const telemetry = new TelemetryReading({
+    deviceRef: device._id,
     deviceId: device.deviceId,
     plantId: device.plantId,
     timestamp: new Date(timestamp),

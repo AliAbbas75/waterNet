@@ -137,9 +137,19 @@ Design principle: keep link fields nullable so modules can ship independently (e
 Principle: stable endpoints, strict validation, and role-based access control.
 
 ### 4.1 IoT ingestion (MQTT)
-Ingestion uses MQTT with mTLS (mutual TLS) between devices and the broker.
+Ingestion uses MQTT via a broker (EMQX). Devices publish telemetry/health to EMQX, and the backend subscribes to those topics.
+
+Runtime flow (important):
+- Device establishes an MQTT connection to EMQX and publishes telemetry/health.
+- Backend establishes its own MQTT connection to EMQX and subscribes to `waternet/v1/devices/+/telemetry|health|lwt`.
+- Devices do NOT connect to the backend for telemetry (backend is not an MQTT broker). The backend is an HTTP API + MQTT consumer.
 
 - MQTT broker: EMQX Serverless (free-tier for MVP)
+
+Current EMQX Cloud Serverless setup (as of 2026-05-02):
+- Transport: TLS (`mqtts://...:8883`)
+- Auth used by backend: username/password (see `backend/.env`: `MQTT_USERNAME`, `MQTT_PASSWORD`)
+- Device auth: username/password + EMQX Authorization (ACL) (Serverless UI does not expose a certificates/CA page in our deployment, so client-certificate mTLS is treated as not available for MVP)
 
 - MQTT topics (example shape; finalize later):
   - `waternet/v1/devices/{deviceId}/telemetry`
@@ -150,8 +160,14 @@ Ingestion uses MQTT with mTLS (mutual TLS) between devices and the broker.
 - Payload: JSON with a `schemaVersion` and timestamp
 
 Identity + security:
-- Extract `deviceId` from the client certificate Common Name (CN) and enforce it server-side.
-- Ignore/override any `deviceId` claimed by the payload/topic if it conflicts with the certificate identity.
+- Today (implemented): backend derives `deviceId` from the MQTT topic segment (`waternet/v1/devices/{deviceId}/...`) and rejects/logs if payload also includes a different `deviceId`.
+- Recommended broker enforcement: restrict publish/subscribe so a device identity (username or certificate CN, if supported) can only access `waternet/v1/devices/<identity>/#`.
+- If mTLS is enabled on a listener: any client using that listener (including the backend subscriber) must present a client certificate unless EMQX provides separate listeners/ports for different client types.
+
+MVP broker policy we will use (EMQX Serverless):
+- Create a dedicated backend MQTT user (e.g. `waternet-backend`) that can subscribe to `waternet/v1/devices/+/telemetry|health|lwt` and publish retained outputs.
+- Create one MQTT user per device, where `username == deviceId`.
+- Authorization mode: emulate whitelist behavior by adding a deny-all rule (All Users: deny Publish & Subscribe on `#`) and then adding explicit allow rules per Username/Client ID.
 
 Backend responsibilities:
 - Subscribes to telemetry/health topics

@@ -11,9 +11,9 @@ Milestone mapping (see [plan.md](../plan.md)):
 - Milestone K — Reporting & Visualization
 
 ## Status (edit as you go)
-- Current focus:
-- Blockers:
-- Next milestone target:
+- Current focus: Not started (frontend is still auth test shell only).
+- Blockers: None noted.
+- Next milestone target: Define page map and start Milestone H scaffold.
 
 ## Checklist — Milestone H (Admin Dashboard)
 Goal: admins can monitor plants/devices, see alerts, manage inventory, and manage maintenance.
