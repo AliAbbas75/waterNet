@@ -42,3 +42,4 @@ This folder contains lightweight, per-member progress trackers that map directly
 - [Farrukh Khan](farrukh-khan.md)
 - [Asmara Kanwal](asmara-kanwal.md)
 - [Team Board](team-board.md)
+- [Telemetry Smoke Test](telemetry-smoke-test.md)

@@ -2,6 +2,12 @@ const mongoose = require("mongoose");
 
 const telemetryReadingSchema = new mongoose.Schema(
   {
+    deviceRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Device',
+      default: null,
+      index: true
+    },
     deviceId: {
       type: String,
       required: true,

@@ -41,7 +41,7 @@ exports.createTask = async (req, res, next) => {
 // Admin: Assign/reassign task
 exports.assignTask = async (req, res, next) => {
   try {
-    const { assignedToUserId } = req.body;
+    const { assignedToUserId, handoffLogId, handoffNote } = req.body;
 
     if (!assignedToUserId) {
       return res.status(400).json({ error: 'assignedToUserId required' });
@@ -52,11 +52,31 @@ exports.assignTask = async (req, res, next) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    // If task is IN_PROGRESS, require soft handoff
-    if (task.status === 'IN_PROGRESS') {
-      // Check if current assignee provided handoff log
-      // For simplicity, assume admin can reassign, but in full impl, check logs
-      // TODO: implement soft handoff logic
+    // If task is IN_PROGRESS, require soft handoff log from current assignee
+    if (task.status === 'IN_PROGRESS' && task.assignedToUserId.toString() !== assignedToUserId) {
+      if (!handoffLogId) {
+        return res.status(400).json({ error: 'handoffLogId required for reassignment' });
+      }
+
+      const handoffLog = await MaintenanceLog.findById(handoffLogId);
+      if (!handoffLog || handoffLog.taskId.toString() !== task._id.toString()) {
+        return res.status(400).json({ error: 'Invalid handoffLogId' });
+      }
+      if (handoffLog.authorUserId.toString() !== task.assignedToUserId.toString()) {
+        return res.status(400).json({ error: 'Handoff log must be authored by current assignee' });
+      }
+
+      await MaintenanceLog.create({
+        taskId: task._id,
+        authorUserId: req.user._id,
+        note: handoffNote ? `Soft handoff: ${handoffNote}` : 'Soft handoff approved',
+        structuredFields: {
+          type: 'SOFT_HANDOFF',
+          fromUserId: task.assignedToUserId,
+          toUserId: assignedToUserId,
+          handoffLogId: handoffLog._id
+        }
+      });
     }
 
     // Check new assignee

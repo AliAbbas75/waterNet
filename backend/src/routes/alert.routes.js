@@ -8,11 +8,8 @@ const {
 
 const router = express.Router();
 
-// All alert routes require ADMIN role
-router.use(requireRole('ADMIN'));
-
-router.get("/", getAlerts);
-router.patch("/:id/ack", ackAlert);
-router.patch("/:id/resolve", resolveAlert);
+router.get("/", requireRole('ADMIN'), getAlerts);
+router.patch("/:id/ack", requireRole('MAINTAINER'), ackAlert);
+router.patch("/:id/resolve", requireRole('MAINTAINER'), resolveAlert);
 
 module.exports = router;

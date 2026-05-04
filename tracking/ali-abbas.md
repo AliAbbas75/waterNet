@@ -13,16 +13,16 @@ Milestone mapping (see [plan.md](../plan.md)):
 - Milestone L — Blockchain-based Authentication (Deferred)
 
 ## Status (edit as you go)
-- Current focus:
-- Blockers:
-- Next milestone target:
+- Current focus: Add alert time-window filtering and run telemetry smoke test.
+- Blockers: None.
+- Next milestone target: Finish Milestone E time-window filtering.
 
 ## Checklist — Milestone D (Water Quality Analysis)
-- [ ] Confirm threshold model requirements (global + per-plant overrides)
-- [ ] Implement `ThresholdConfig` persistence + admin endpoints
-- [ ] Implement evaluation function: Safe/Warning/Unsafe + reason codes
-- [ ] Store/update latest `WaterQualityState` per plant/device
-- [ ] Expose read endpoints for UIs (admin/maintainer/public)
+- [x] Confirm threshold model requirements (global + per-plant overrides)
+- [x] Implement `ThresholdConfig` persistence + admin endpoints
+- [x] Implement evaluation function: Safe/Warning/Unsafe + reason codes
+- [x] Store/update latest `WaterQualityState` per plant/device
+- [x] Expose read endpoints for UIs (admin/maintainer/public)
 - [ ] Smoke test with sample telemetry records (from Milestone C)
 
 ### API contracts (to lock early)
@@ -32,21 +32,23 @@ Milestone mapping (see [plan.md](../plan.md)):
   - lastEvaluatedAt
 
 ## Checklist — Milestone E (Alert & Notification)
-- [ ] Define alert types + severity mapping
-- [ ] Implement `Alert` persistence
-- [ ] Create alerts on water quality state transitions
-- [ ] Device availability alert rules (offline/unavailable events)
-- [ ] Add ack/resolve actions and enforce RBAC
+- [x] Define alert types + severity mapping
+- [x] Implement `Alert` persistence
+- [x] Create alerts on water quality state transitions
+- [x] Device availability alert rules (offline/unavailable events)
+- [x] Add ack/resolve actions and enforce RBAC
 - [ ] Ensure alerts are queryable by plant/device and time window
+
+Gap: Alert list endpoint lacks time-window filtering.
 
 ### Notes
 - Availability alerts should respect “disabled device telemetry” rules (still ingested, but hidden by default).
 
 ## Checklist — Milestone G (Inventory Management)
-- [ ] Implement `InventoryItem` model
-- [ ] Admin CRUD endpoints
-- [ ] Low-stock detection rules + alert generation
-- [ ] Agree on inventory decrement semantics with Maintenance module:
+- [x] Implement `InventoryItem` model
+- [x] Admin CRUD endpoints
+- [x] Low-stock detection rules + alert generation
+- [x] Agree on inventory decrement semantics with Maintenance module:
   - Decrement only on `POST /api/maintenance/tasks/:id/resolve`
   - Use MongoDB transactions for consistent stock updates
 

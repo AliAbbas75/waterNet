@@ -3,17 +3,26 @@ const WaterQualityState = require("../models/WaterQualityState");
 const Plant = require("../models/Plant");
 const TelemetryReading = require("../models/TelemetryReading");
 const Alert = require("../models/Alert");
+const Device = require("../models/Device");
+const mongoose = require("mongoose");
 
 // Evaluate water quality for a plant/device
-async function evaluateQuality(plantId, deviceId) {
+async function evaluateQuality(plantId, deviceRef, deviceKey) {
   // Get latest telemetry
-  const latest = await TelemetryReading.findOne({ plantId, deviceId })
-    .sort({ timestamp: -1 });
+  const telemetryQuery = { plantId, $or: [] };
+  if (deviceRef) telemetryQuery.$or.push({ deviceRef });
+  if (deviceKey) telemetryQuery.$or.push({ deviceId: deviceKey });
+
+  if (telemetryQuery.$or.length === 0) {
+    return null;
+  }
+
+  const latest = await TelemetryReading.findOne(telemetryQuery).sort({ timestamp: -1 });
 
   if (!latest) {
     // No data
     await WaterQualityState.findOneAndUpdate(
-      { plantId, deviceId },
+      { plantId, deviceId: deviceRef },
       {
         category: 'NO_DATA',
         reasons: [],
@@ -81,7 +90,7 @@ async function evaluateQuality(plantId, deviceId) {
 
   // Save state
   await WaterQualityState.findOneAndUpdate(
-    { plantId, deviceId },
+    { plantId, deviceId: deviceRef },
     {
       category: overallCategory,
       reasons,
@@ -95,7 +104,7 @@ async function evaluateQuality(plantId, deviceId) {
     const existing = await Alert.findOne({
       type: 'QUALITY_UNSAFE',
       plantId,
-      deviceId,
+      deviceId: deviceRef,
       status: { $in: ['OPEN', 'ACK'] }
     });
 
@@ -104,7 +113,7 @@ async function evaluateQuality(plantId, deviceId) {
         type: 'QUALITY_UNSAFE',
         severity: 'CRITICAL',
         plantId,
-        deviceId,
+        deviceId: deviceRef,
         message: `Water quality unsafe at plant ${plantId}`
       });
     }
@@ -121,7 +130,21 @@ exports.evaluate = async (req, res, next) => {
       return res.status(400).json({ error: 'plantId and deviceId required' });
     }
 
-    const category = await evaluateQuality(plantId, deviceId);
+    let device = null;
+    if (mongoose.Types.ObjectId.isValid(deviceId)) {
+      device = await Device.findById(deviceId);
+    }
+    if (!device) {
+      device = await Device.findOne({ deviceId });
+    }
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+    if (device.plantId && device.plantId.toString() !== String(plantId)) {
+      return res.status(400).json({ error: 'Device does not belong to this plant' });
+    }
+
+    const category = await evaluateQuality(plantId, device._id, device.deviceId);
     res.json({ category });
   } catch (err) {
     next(err);
