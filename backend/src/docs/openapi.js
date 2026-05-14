@@ -291,6 +291,39 @@ const openapi = {
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
         responses: { 200: { description: "OK" }, 404: { description: "Not found" } }
       }
+    },
+
+    "/api/alerts": {
+      get: {
+        tags: ["Alerts"],
+        summary: "List alerts",
+        description:
+          "Supports filtering by status/type/plant/device and an optional createdAt time window via from/to.",
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: "status", in: "query", schema: { type: "string" } },
+          { name: "type", in: "query", schema: { type: "string" } },
+          { name: "plantId", in: "query", schema: { type: "string" } },
+          { name: "deviceId", in: "query", schema: { type: "string" } },
+          {
+            name: "from",
+            in: "query",
+            schema: { type: "string", format: "date-time" },
+            description: "Start of createdAt window (inclusive). ISO 8601 recommended."
+          },
+          {
+            name: "to",
+            in: "query",
+            schema: { type: "string", format: "date-time" },
+            description: "End of createdAt window (inclusive). ISO 8601 recommended."
+          }
+        ],
+        responses: {
+          200: { description: "OK" },
+          400: { description: "Invalid query parameters (e.g., invalid from/to)" },
+          401: { description: "Unauthorized" }
+        }
+      }
     }
   }
 };
