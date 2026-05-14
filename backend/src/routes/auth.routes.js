@@ -10,7 +10,18 @@ const loginSchema = z.object({
 	walletAddress: z.string().min(1)
 });
 
+const devLoginSchema = z
+	.object({
+		email: z.string().min(1).optional(),
+		walletAddress: z.string().min(1).optional()
+	})
+	.refine((d) => Boolean(d.email || d.walletAddress), {
+		message: "email or walletAddress is required"
+	});
+
 router.post("/login", validateBody(loginSchema), authController.login);
+router.post("/dev-login", validateBody(devLoginSchema), authController.devLogin);
+router.get("/dev-users", authController.devUsers);
 router.get("/me", protect, authController.me);
 router.post("/logout", protect, authController.logout);
 

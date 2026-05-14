@@ -8,7 +8,7 @@ const {
 
 const router = express.Router();
 
-router.get("/", requireRole('ADMIN'), getAlerts);
+router.get("/", requireRole('MAINTAINER'), getAlerts);
 router.patch("/:id/ack", requireRole('MAINTAINER'), ackAlert);
 router.patch("/:id/resolve", requireRole('MAINTAINER'), resolveAlert);
 

@@ -15,27 +15,19 @@ const {
 
 const router = express.Router();
 
+// Maintainer-only routes registered first so `/mine` doesn't get shadowed by `/:id`.
+router.get("/mine", requireRole("MAINTAINER"), getMyTasks);
+router.patch("/:id/start", requireRole("MAINTAINER"), startTask);
+router.post("/:id/logs", requireRole("MAINTAINER"), addLog);
+router.post("/:id/resolve", requireRole("MAINTAINER"), resolveTask);
+
 // Admin routes
-const adminRouter = express.Router();
-adminRouter.use(requireRole('ADMIN'));
-adminRouter.post("/", createTask);
-adminRouter.patch("/:id/assign", assignTask);
-adminRouter.get("/", getTasks);
+router.post("/", requireRole("ADMIN"), createTask);
+router.patch("/:id/assign", requireRole("ADMIN"), assignTask);
+router.get("/", requireRole("ADMIN"), getTasks);
 
-// Maintainer routes (also allow ADMIN)
-const maintainerRouter = express.Router();
-maintainerRouter.use(requireRole('MAINTAINER'));
-maintainerRouter.get("/mine", getMyTasks);
-maintainerRouter.patch("/:id/start", startTask);
-maintainerRouter.post("/:id/logs", addLog);
-maintainerRouter.post("/:id/resolve", resolveTask);
-
-// Shared routes (admin or assigned maintainer)
+// Shared routes (admin or assigned maintainer); controller enforces permission.
 router.get("/:id", protect, getTask);
 router.get("/:id/logs", protect, getLogs);
-
-// Mount sub-routers
-router.use("/", adminRouter);
-router.use("/", maintainerRouter);
 
 module.exports = router;

@@ -155,15 +155,22 @@ exports.deleteDevice = async (req, res, next) => {
   }
 };
 
-// Get recent readings for device
+// Get recent readings for device. The `:id` here is the Mongo ObjectId;
+// telemetry is stored by string `deviceId`, so we look up the device first.
 exports.getDeviceReadings = async (req, res, next) => {
   try {
-    const { limit = 10 } = req.query;
-    const readings = await TelemetryReading.find({ deviceId: req.params.id })
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 2000);
+    const device = await Device.findById(req.params.id);
+    if (!device) {
+      return res.status(404).json({ error: "Device not found" });
+    }
+    const readings = await TelemetryReading.find({
+      $or: [{ deviceRef: device._id }, { deviceId: device.deviceId }]
+    })
       .sort({ timestamp: -1 })
-      .limit(parseInt(limit));
+      .limit(limit);
 
-    res.json({ readings });
+    res.json({ device, readings });
   } catch (err) {
     next(err);
   }

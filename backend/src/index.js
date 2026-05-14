@@ -16,6 +16,9 @@ const alertRoutes = require("./routes/alert.routes");
 const analysisRoutes = require("./routes/analysis.routes");
 const { connectMqtt } = require("./services/mqtt.service");
 const adminRoutes = require("./routes/admin.routes");
+const userRoutes = require("./routes/user.routes");
+const publicRoutes = require("./routes/public.routes");
+const reportRoutes = require("./routes/reports.routes");
 
 const app = express();
 
@@ -52,12 +55,15 @@ app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openapi, { explorer: true 
 
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/users", userRoutes);
 app.use("/api/plants", plantRoutes);
 app.use("/api/devices", deviceRoutes);
 app.use("/api/maintenance/tasks", maintenanceRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/analysis", analysisRoutes);
+app.use("/api/public", publicRoutes);
+app.use("/api/reports", reportRoutes);
 
 app.use((err, req, res, _next) => {
   const status = err.statusCode || 500;
@@ -71,7 +77,15 @@ const port = process.env.PORT || 4000;
 (async () => {
   assertEnv();
   await connectDb();
-  await connectMqtt();
+  if (process.env.DISABLE_MQTT === "true") {
+    console.log("MQTT disabled via DISABLE_MQTT=true");
+  } else {
+    try {
+      await connectMqtt();
+    } catch (err) {
+      console.warn("MQTT connect failed; continuing without MQTT:", err?.message || err);
+    }
+  }
   const server = app.listen(port, () => {
     console.log(`waterNet backend listening on :${port}`);
   });

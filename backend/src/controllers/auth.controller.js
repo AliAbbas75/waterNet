@@ -106,3 +106,65 @@ exports.logout = async (_req, res) => {
   // Stateless logout; client discards token.
   res.json({ ok: true });
 };
+
+// Dev-only login. Gated by NODE_ENV !== 'production' AND ALLOW_DEV_LOGIN === 'true'.
+// Accepts { email } or { walletAddress } and issues a JWT for the matching user.
+// Lets us run the whole stack offline without going through Thirdweb.
+exports.devLogin = async (req, res, next) => {
+  try {
+    if (process.env.NODE_ENV === "production" || process.env.ALLOW_DEV_LOGIN !== "true") {
+      return res.status(404).json({ ok: false, error: "Not found", requestId: req.requestId });
+    }
+
+    const { email, walletAddress } = req.body || {};
+    if (!email && !walletAddress) {
+      return res
+        .status(400)
+        .json({ ok: false, error: "email or walletAddress required", requestId: req.requestId });
+    }
+
+    const query = email
+      ? { email: String(email).toLowerCase() }
+      : { wallet_address: String(walletAddress).toLowerCase() };
+
+    const user = await User.findOne(query);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ ok: false, error: "User not found", requestId: req.requestId });
+    }
+    if (user.active === false) {
+      return res
+        .status(403)
+        .json({ ok: false, error: "Account disabled", requestId: req.requestId });
+    }
+
+    user.last_login_at = new Date();
+    await user.save();
+
+    const jwtToken = jwt.sign(
+      { userId: user._id.toString(), wallet_address: user.wallet_address },
+      requireJwtSecret(),
+      { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+    );
+
+    return res.json({ ok: true, token: jwtToken, user });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Public list of dev users (only when dev-login is enabled) so the UI can show a picker.
+exports.devUsers = async (req, res, next) => {
+  try {
+    if (process.env.NODE_ENV === "production" || process.env.ALLOW_DEV_LOGIN !== "true") {
+      return res.status(404).json({ ok: false, error: "Not found", requestId: req.requestId });
+    }
+    const users = await User.find({ active: true })
+      .select("email role display_name wallet_address")
+      .sort({ role: 1, email: 1 });
+    return res.json({ ok: true, users });
+  } catch (err) {
+    next(err);
+  }
+};

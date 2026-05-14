@@ -146,7 +146,8 @@ function connectMqtt() {
     console.log("MQTT connection closed");
   });
 
-  // Schedule availability check every minute
+  // Schedule availability check every minute (skip in MQTT-disabled mode)
+  if (process.env.DISABLE_MQTT === "true") return connectPromise;
   cron.schedule("* * * * *", async () => {
     try {
       const gracePeriod = 6 * 60 * 1000; // 6 minutes
