@@ -31,7 +31,8 @@ const openapi = {
     { name: "Analysis" },
     { name: "Alerts" },
     { name: "Inventory" },
-    { name: "Maintenance" }
+    { name: "Maintenance" },
+    { name: "Reports" }
   ],
   paths: {
     "/health": {
@@ -321,6 +322,71 @@ const openapi = {
         responses: {
           200: { description: "OK" },
           400: { description: "Invalid query parameters (e.g., invalid from/to)" },
+          401: { description: "Unauthorized" }
+        }
+      }
+    },
+
+    "/api/reports/overview": {
+      get: {
+        tags: ["Reports"],
+        summary: "Reporting overview (admin dashboard)",
+        security: [{ BearerAuth: [] }],
+        responses: {
+          200: { description: "OK" },
+          401: { description: "Unauthorized" }
+        }
+      }
+    },
+
+    "/api/reports/quality/trends": {
+      get: {
+        tags: ["Reports"],
+        summary: "Water quality trends",
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: "plantId", in: "query", schema: { type: "string" } },
+          { name: "bucket", in: "query", schema: { type: "string", enum: ["hour", "day"] } },
+          { name: "from", in: "query", schema: { type: "string", format: "date-time" } },
+          { name: "to", in: "query", schema: { type: "string", format: "date-time" } }
+        ],
+        responses: {
+          200: { description: "OK" },
+          400: { description: "Invalid query parameters" },
+          401: { description: "Unauthorized" }
+        }
+      }
+    },
+
+    "/api/reports/maintenance/performance": {
+      get: {
+        tags: ["Reports"],
+        summary: "Maintenance performance summary",
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: "from", in: "query", schema: { type: "string", format: "date-time" } },
+          { name: "to", in: "query", schema: { type: "string", format: "date-time" } }
+        ],
+        responses: {
+          200: { description: "OK" },
+          400: { description: "Invalid query parameters" },
+          401: { description: "Unauthorized" }
+        }
+      }
+    },
+
+    "/api/reports/uptime": {
+      get: {
+        tags: ["Reports"],
+        summary: "Device uptime summary",
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: "from", in: "query", schema: { type: "string", format: "date-time" } },
+          { name: "to", in: "query", schema: { type: "string", format: "date-time" } }
+        ],
+        responses: {
+          200: { description: "OK" },
+          400: { description: "Invalid query parameters" },
           401: { description: "Unauthorized" }
         }
       }

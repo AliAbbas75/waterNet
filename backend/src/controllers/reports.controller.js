@@ -7,11 +7,26 @@ const Alert = require("../models/Alert");
 
 const PARAM_KEYS = ["pH", "turbidity", "temperature", "TDS"];
 
+function parseDateParam(name, value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    const err = new Error(`${name} must be a valid date (ISO 8601 recommended)`);
+    err.statusCode = 400;
+    throw err;
+  }
+  return date;
+}
+
 function parseRange(req) {
-  const to = req.query.to ? new Date(req.query.to) : new Date();
-  const from = req.query.from
-    ? new Date(req.query.from)
-    : new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const to = parseDateParam("to", req.query.to) || new Date();
+  const from =
+    parseDateParam("from", req.query.from) || new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000);
+  if (from > to) {
+    const err = new Error("from must be before to");
+    err.statusCode = 400;
+    throw err;
+  }
   return { from, to };
 }
 
@@ -23,6 +38,11 @@ exports.qualityTrends = async (req, res, next) => {
     const match = { timestamp: { $gte: from, $lte: to }, readings: { $exists: true, $ne: null } };
     if (req.query.plantId) {
       const mongoose = require("mongoose");
+      if (!mongoose.Types.ObjectId.isValid(req.query.plantId)) {
+        const err = new Error("plantId must be a valid ObjectId");
+        err.statusCode = 400;
+        throw err;
+      }
       match.plantId = new mongoose.Types.ObjectId(req.query.plantId);
     }
     const groupKey =
