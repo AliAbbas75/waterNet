@@ -3,9 +3,9 @@ import { inAppWallet } from "thirdweb/wallets";
 
 const clientId = import.meta.env.VITE_THIRDWEB_CLIENT_ID;
 
-export const client = clientId ? createThirdwebClient({ clientId }) : null;
+export const thirdwebClient = clientId ? createThirdwebClient({ clientId }) : null;
 
-export const wallets = client
+export const thirdwebWallets = thirdwebClient
   ? [
       inAppWallet({
         auth: {
@@ -14,3 +14,5 @@ export const wallets = client
       })
     ]
   : [];
+
+export const thirdwebClientId = clientId;
