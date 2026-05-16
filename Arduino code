@@ -1,0 +1,213 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+
+// WiFi Credentials
+const char* ssid = "Farrukh's WiFi";
+const char* password = "AliSeraiki420";
+
+// Backend API Endpoint
+const char* serverURL = "http://your-backend-api.com/api/water-quality";
+
+// Pin Definitions
+#define TDS_PIN 34
+#define PH_PIN 35
+#define TURBIDITY_PIN 32
+#define FLOW_PIN 25
+
+
+// Sensor Objects
+
+
+// Flow Sensor Variables
+volatile int flowPulseCount = 0;
+float flowRate = 0.0;
+float totalVolume = 0.0;
+unsigned long oldTime = 0;
+
+// TDS Calibration
+#define VREF 3.3              // ESP32 ADC reference voltage
+#define TDS_FACTOR 0.5        // Calibration factor
+
+// pH Calibration (adjust based on buffer calibration)
+#define PH_OFFSET 0.0         // Calibration offset
+#define PH_SLOPE 3.5          // Voltage to pH slope
+
+// Interrupt Service Routine for Flow Sensor
+void IRAM_ATTR flowPulseCounter() {
+  flowPulseCount++;
+}
+
+void setup() {
+  Serial.begin(115200);
+  
+ 
+  
+  // Initialize Flow Sensor
+  pinMode(FLOW_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(FLOW_PIN), flowPulseCounter, FALLING);
+  
+  // Connect to WiFi
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi Connected!");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+  
+  oldTime = millis();
+}
+
+void loop() {
+  // Read all sensors every 5 seconds
+  static unsigned long lastReadTime = 0;
+  if (millis() - lastReadTime >= 5000) {
+    lastReadTime = millis();
+    
+    // Read Sensors
+    float tdsValue = readTDS();
+    float phValue = readPH();
+    float turbidity = readTurbidity();
+    
+    
+    // Calculate Flow Rate (every second)
+    calculateFlowRate();
+    
+    // Create JSON payload
+    String jsonPayload = createJSON(tdsValue, phValue, turbidity, flowRate, totalVolume);
+    
+    // Send data to backend
+    sendDataToBackend(jsonPayload);
+    
+    // Print to Serial for debugging
+    Serial.println("--- Sensor Readings ---");
+    Serial.println(jsonPayload);
+    Serial.println("-----------------------");
+  }
+  
+  // Update flow calculation every second
+  static unsigned long lastFlowCalc = 0;
+  if (millis() - lastFlowCalc >= 1000) {
+    lastFlowCalc = millis();
+    calculateFlowRate();
+  }
+}
+
+// Read TDS Sensor
+float readTDS() {
+  int analogValue = analogRead(TDS_PIN);
+  float voltage = analogValue * (VREF / 4095.0); // ESP32 12-bit ADC
+  float tdsValue = (133.42 * voltage * voltage * voltage 
+                   - 255.86 * voltage * voltage 
+                   + 857.39 * voltage) * TDS_FACTOR;
+  return tdsValue;
+}
+
+// Read pH Sensor
+float readPH() {
+  int analogValue = analogRead(PH_PIN);
+  float voltage = analogValue * (VREF / 4095.0);
+  float phValue = PH_SLOPE * voltage + PH_OFFSET;
+  return phValue;
+}
+
+// Read Turbidity Sensor
+float readTurbidity() {
+  int analogValue = analogRead(TURBIDITY_PIN);
+  float voltage = analogValue * (5.0 / 4095.0);
+  
+  // Convert voltage to NTU (Nephelometric Turbidity Units)
+  // Higher voltage = clearer water, lower voltage = turbid water
+  float turbidityNTU;
+  if (voltage < 2.5) {
+    turbidityNTU = 3000; // Very turbid
+  } else {
+    turbidityNTU = -1120.4 * voltage * voltage + 5742.3 * voltage - 4352.9;
+  }
+  
+  return max(0.0f, turbidityNTU);
+}
+
+// Calculate Flow Rate
+void calculateFlowRate() {
+  unsigned long currentTime = millis();
+  unsigned long elapsedTime = currentTime - oldTime;
+  
+  if (elapsedTime >= 1000) {
+    // Disable interrupt while calculating
+    detachInterrupt(digitalPinToInterrupt(FLOW_PIN));
+    
+    // Calculate flow rate: Frequency (Hz) = 7.5 * Flow rate (L/min)
+    // Flow rate (L/min) = Frequency / 7.5
+    flowRate = (flowPulseCount / 7.5); // L/min
+    totalVolume += (flowRate / 60.0); // Convert to L/sec and accumulate
+    
+    flowPulseCount = 0;
+    oldTime = currentTime;
+    
+    // Re-enable interrupt
+    attachInterrupt(digitalPinToInterrupt(FLOW_PIN), flowPulseCounter, FALLING);
+  }
+}
+
+// Create JSON Payload
+String createJSON(float tds, float ph, float turbidity, float flow, float volume) {
+  StaticJsonDocument<512> doc;
+  
+  doc["device_id"] = "WQ_MONITOR_001"; // Unique device identifier
+  doc["timestamp"] = millis();
+  
+  JsonObject waterQuality = doc.createNestedObject("water_quality");
+  waterQuality["tds_ppm"] = round(tds * 10) / 10.0;
+  waterQuality["turbidity_ntu"] = round(turbidity * 10) / 10.0;
+  
+  
+  JsonObject flowData = doc.createNestedObject("flow");
+  flowData["rate_lpm"] = round(flow * 100) / 100.0;
+  flowData["total_volume_l"] = round(volume * 100) / 100.0;
+  
+ // JsonObject ambient = doc.createNestedObject("ambient");
+ // ambient["humidity_percent"] = round(hum * 10) / 10.0;
+ // ambient["temperature_c"] = round(temp * 10) / 10.0;
+  
+  // Water Quality Status
+  String status = "Good";
+  if (tds > 500 || ph < 6.5 || ph > 8.5 || turbidity > 5) {
+    status = "Poor";
+  } else if (tds > 300 || ph < 7.0 || ph > 8.0 || turbidity > 1) {
+    status = "Fair";
+  }
+  doc["status"] = status;
+  
+  String output;
+  serializeJson(doc, output);
+  return output;
+}
+
+// Send Data to Backend
+void sendDataToBackend(String jsonPayload) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    
+    http.begin(serverURL);
+    http.addHeader("Content-Type", "application/json");
+    
+    int httpResponseCode = http.POST(jsonPayload);
+    
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.println("HTTP Response code: " + String(httpResponseCode));
+      Serial.println("Response: " + response);
+    } else {
+      Serial.println("Error sending POST: " + String(httpResponseCode));
+    }
+    
+    http.end();
+  } else {
+    Serial.println("WiFi Disconnected!");
+  }
+}
+
