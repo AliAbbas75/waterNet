@@ -1,0 +1,21 @@
+{
+  "name": "waternet",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "start": "docker compose up --build",
+    "stop": "docker compose down",
+    "reset": "docker compose down -v",
+    "logs": "docker compose logs -f",
+    "reseed": "SEED_FORCE=true docker compose run --rm seed node scripts/seed.js",
+
+    "install:all": "npm install --prefix backend && npm install --prefix frontend",
+    "seed": "npm --prefix backend run seed",
+    "dev": "concurrently -k -n backend,frontend -c blue,magenta \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

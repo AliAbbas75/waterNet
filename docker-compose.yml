@@ -1,0 +1,122 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: waternet-mongo
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - waternet_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  mongo-init:
+    image: mongo:7
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: >
+      bash -c '
+      mongosh --host mongo:27017 --quiet --eval "
+        try { rs.status().ok }
+        catch (e) { rs.initiate({ _id: \"rs0\", members: [{ _id: 0, host: \"mongo:27017\" }] }) }
+      "
+      '
+
+  # One-shot seed. Idempotent — only writes when the database is empty,
+  # unless SEED_FORCE=true. Block backend startup until this finishes.
+  seed:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: waternet-seed
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+    environment:
+      MONGODB_URI: "mongodb://mongo:27017/waternet?replicaSet=rs0&directConnection=true"
+      JWT_SECRET: "${JWT_SECRET:-dev-secret-change-me}"
+      NODE_ENV: "development"
+      DISABLE_MQTT: "true"
+      SEED_FORCE: "${SEED_FORCE:-false}"
+      AUTH_BLOCKCHAIN_ENABLED: "${AUTH_BLOCKCHAIN_ENABLED:-false}"
+      AUTH_MASTER_KEY: "${AUTH_MASTER_KEY:-}"
+      CHAIN_RPC_URL: "${CHAIN_RPC_URL:-}"
+      CHAIN_USER_REGISTRY_ADDRESS: "${CHAIN_USER_REGISTRY_ADDRESS:-}"
+      CHAIN_ADMIN_PRIVATE_KEY: "${CHAIN_ADMIN_PRIVATE_KEY:-}"
+    command: ["node", "scripts/seed.js"]
+    restart: "no"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: waternet-backend
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    environment:
+      MONGODB_URI: "mongodb://mongo:27017/waternet?replicaSet=rs0&directConnection=true"
+      JWT_SECRET: "${JWT_SECRET:-dev-secret-change-me}"
+      JWT_EXPIRES_IN: "7d"
+      PORT: "4000"
+      CORS_ORIGINS: "*"
+      NODE_ENV: "development"
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+      DISABLE_MQTT: "true"
+      AUTH_BLOCKCHAIN_ENABLED: "${AUTH_BLOCKCHAIN_ENABLED:-false}"
+      AUTH_MASTER_KEY: "${AUTH_MASTER_KEY:-}"
+      CHAIN_RPC_URL: "${CHAIN_RPC_URL:-}"
+      CHAIN_USER_REGISTRY_ADDRESS: "${CHAIN_USER_REGISTRY_ADDRESS:-}"
+      CHAIN_ADMIN_PRIVATE_KEY: "${CHAIN_ADMIN_PRIVATE_KEY:-}"
+      RESEND_API_KEY: "${RESEND_API_KEY:-}"
+      RESEND_FROM: "${RESEND_FROM:-}"
+      SMTP_HOST: "${SMTP_HOST:-smtp.gmail.com}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASS: "${SMTP_PASS:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_BACKEND_URL: ""
+        VITE_AUTH_BLOCKCHAIN_ENABLED: "true"
+    container_name: waternet-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5173:80"
+
+  mobile:
+    build:
+      context: ./mobile
+    container_name: waternet-mobile
+    working_dir: /app
+    environment:
+      EXPO_PUBLIC_BACKEND_URL: "http://localhost:4000"
+      EXPO_DEVTOOLS_LISTEN_ADDRESS: "0.0.0.0"
+    command: ["npm", "start", "--", "--web", "--host", "lan"]
+    ports:
+      - "8081:8081"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  waternet_mongo_data:
