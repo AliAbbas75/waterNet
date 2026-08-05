@@ -124,7 +124,7 @@ export default function DevicesPage() {
     <>
       <PageHeader
         title="Devices"
-        description="IoT sensor nodes — pH, turbidity, temperature and TDS — registered in WaterNet."
+        description="IoT sensor nodes — pH, turbidity, TDS and flow rate — registered in WaterNet."
         action={
           <Button leftIcon={<Plus size={16} />} onClick={() => setEditing({})}>
             New device

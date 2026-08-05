@@ -27,8 +27,7 @@ const otpTokenSchema = new mongoose.Schema(
     },
     expiresAt: {
       type: Date,
-      required: true,
-      index: true
+      required: true
     }
   },
   { timestamps: true }

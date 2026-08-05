@@ -52,7 +52,7 @@ const PLANTS = [
   { name: "G-9 Karachi Company Plant", address: "G-9 Markaz, Islamabad", lat: 33.6948, lng: 73.0312, status: "MAINTENANCE", hours: "06:00-22:00" },
   { name: "G-13 Society Plant", address: "G-13/3, Islamabad", lat: 33.6529, lng: 72.9659, status: "OPERATIONAL", hours: "06:00-22:00" },
   { name: "H-8 Sector Plant", address: "H-8/1, Islamabad", lat: 33.6796, lng: 73.0698, status: "OPERATIONAL", hours: "24/7" },
-  { name: "I-8 Industrial Filter", address: "I-8/4, Islamabad", lat: 33.6705, lng: 73.0789, status: "OFFLINE", hours: "06:00-22:00" },
+  { name: "I-8 Industrial Filter", address: "I-8/4, Islamabad", lat: 33.6705, lng: 73.0789, status: "CLOSED", hours: "06:00-22:00" },
   { name: "Bahria Town Phase 4 Plant", address: "Bahria Town, Rawalpindi", lat: 33.5346, lng: 73.0974, status: "OPERATIONAL", hours: "24/7" }
 ];
 
@@ -75,7 +75,6 @@ const INVENTORY = [
 const THRESHOLDS_GLOBAL = [
   { parameter: "pH", safeMin: 6.5, safeMax: 8.5, warnMin: 6.0, warnMax: 9.0, unsafeMin: 0, unsafeMax: 14 },
   { parameter: "turbidity", safeMin: 0, safeMax: 1.0, warnMin: 0, warnMax: 4.0, unsafeMin: 0, unsafeMax: 1000 },
-  { parameter: "temperature", safeMin: 5, safeMax: 35, warnMin: 2, warnMax: 40, unsafeMin: -5, unsafeMax: 60 },
   { parameter: "TDS", safeMin: 0, safeMax: 500, warnMin: 0, warnMax: 900, unsafeMin: 0, unsafeMax: 5000 }
 ];
 
@@ -157,10 +156,11 @@ async function seedDevices(plants) {
   const devices = [];
   let counter = 1;
   for (const p of plants) {
-    const count = p.operationalStatus === "OFFLINE" ? 1 : 2;
+    const count = p.operationalStatus === "CLOSED" ? 1 : 2;
     for (let i = 0; i < count; i++) {
       const deviceId = `WN-${String(counter).padStart(4, "0")}`;
-      const offline = p.operationalStatus === "OFFLINE";
+      // Devices at a closed plant stop reporting, so they read as unavailable.
+      const plantClosed = p.operationalStatus === "CLOSED";
       const maintenance = p.operationalStatus === "MAINTENANCE" && i === 1;
       devices.push({
         deviceId,
@@ -168,8 +168,8 @@ async function seedDevices(plants) {
         installDate: new Date(Date.now() - rand(30, 365) * 86400000),
         status: maintenance ? "MAINTENANCE" : "INSTALLED",
         firmwareVersion: pick(["1.0.3", "1.1.0", "1.2.1"]),
-        lastSeenAt: offline ? new Date(Date.now() - 3600000) : new Date(),
-        availability: offline ? "UNAVAILABLE" : "AVAILABLE",
+        lastSeenAt: plantClosed ? new Date(Date.now() - 3600000) : new Date(),
+        availability: plantClosed ? "UNAVAILABLE" : "AVAILABLE",
         disabled: false
       });
       counter++;
@@ -221,10 +221,16 @@ async function seedTelemetry(devices) {
   for (const d of devices) {
     if (d.disabled) continue;
     if (d.status === "AVAILABLE") continue; // unassigned spare — no telemetry
+    // Cumulative flow-meter odometer, mirroring real hardware: monotonically
+    // rising across the whole series. At 48 readings/day this averages roughly
+    // 350 L/day per device, so a two-device plant lands near the 500 L warning.
+    let odometer = 0;
+    const stepLitres = () => rand(3, 12);
     if (d.availability === "UNAVAILABLE" && d.status !== "MAINTENANCE") {
       // Offline-plant device — only old readings.
       for (let i = points; i > Math.floor(points * 0.7); i--) {
         const ts = new Date(now - i * stepMs);
+        odometer += stepLitres();
         docs.push({
           deviceRef: d._id,
           deviceId: d.deviceId,
@@ -233,8 +239,9 @@ async function seedTelemetry(devices) {
           readings: {
             pH: rand(7.0, 7.6),
             turbidity: rand(0.3, 0.9),
-            temperature: rand(18, 26),
-            TDS: rand(150, 280)
+            TDS: rand(150, 280),
+            flowRate: rand(8, 16),
+            totalLitres: Math.round(odometer * 1000) / 1000
           },
           ingestMeta: { schemaVersion: "v1", protocol: "MQTT" }
         });
@@ -243,11 +250,13 @@ async function seedTelemetry(devices) {
     }
     for (let i = points; i >= 0; i--) {
       const ts = new Date(now - i * stepMs);
+      odometer += stepLitres();
       const baseline = {
         pH: rand(6.8, 7.8),
         turbidity: rand(0.2, 0.9),
-        temperature: rand(18, 28),
-        TDS: rand(180, 340)
+        TDS: rand(180, 340),
+        flowRate: rand(6, 18),
+        totalLitres: Math.round(odometer * 1000) / 1000
       };
       // Force unsafe readings within the last 4 hours for tagged devices.
       if (unsafeDeviceIds.has(d.deviceId) && i < 8) {

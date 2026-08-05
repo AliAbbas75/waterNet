@@ -5,6 +5,8 @@ const TelemetryReading = require("../models/TelemetryReading");
 const Alert = require("../models/Alert");
 const Device = require("../models/Device");
 const mongoose = require("mongoose");
+const { notifyAdminsOfAlert } = require("../services/alert.notification.service");
+const { emit: socketEmit } = require("../services/socket.service");
 
 // Evaluate water quality for a plant/device
 async function evaluateQuality(plantId, deviceRef, deviceKey) {
@@ -35,7 +37,7 @@ async function evaluateQuality(plantId, deviceRef, deviceKey) {
 
   // Get thresholds: plant-specific or global
   const thresholds = {};
-  const params = ['pH', 'turbidity', 'temperature', 'TDS'];
+  const params = ['pH', 'turbidity', 'TDS', 'flowRate'];
 
   for (const param of params) {
     let config = await ThresholdConfig.findOne({ plantId, parameter: param });
@@ -99,7 +101,6 @@ async function evaluateQuality(plantId, deviceRef, deviceKey) {
     { upsert: true }
   );
 
-  // Generate alert if UNSAFE
   if (overallCategory === 'UNSAFE') {
     const existing = await Alert.findOne({
       type: 'QUALITY_UNSAFE',
@@ -109,14 +110,24 @@ async function evaluateQuality(plantId, deviceRef, deviceKey) {
     });
 
     if (!existing) {
-      await Alert.create({
+      const alert = await Alert.create({
         type: 'QUALITY_UNSAFE',
         severity: 'CRITICAL',
         plantId,
         deviceId: deviceRef,
         message: `Water quality unsafe at plant ${plantId}`
       });
+      socketEmit("alert:new", { alert });
+      notifyAdminsOfAlert(alert).catch((err) =>
+        console.error("Alert notification error:", err?.message || err)
+      );
     }
+  } else {
+    // Quality recovered — resolve any open QUALITY_UNSAFE alert for this device
+    await Alert.updateMany(
+      { type: 'QUALITY_UNSAFE', plantId, deviceId: deviceRef, status: { $in: ['OPEN', 'ACK'] } },
+      { status: 'RESOLVED', resolvedAt: new Date() }
+    );
   }
 
   return overallCategory;

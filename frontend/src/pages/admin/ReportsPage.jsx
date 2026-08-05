@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { BarChart3, Building2, TrendingUp, Trophy, Activity } from "lucide-react";
+import { BarChart3, Building2, TrendingUp, Trophy, Activity, Download } from "lucide-react";
 import { PageHeader } from "../../components/ui/PageHeader.jsx";
 import { Card, CardHeader } from "../../components/ui/Card.jsx";
 import { Select, Field } from "../../components/ui/Input.jsx";
@@ -17,6 +17,7 @@ import {
 import { usePlants } from "../../hooks/usePlants.js";
 import { useThresholds } from "../../hooks/useThresholds.js";
 import { fmtMinutes, fmtNum } from "../../lib/format.js";
+import { api } from "../../lib/api.js";
 
 const RANGES = [
   { value: 1, label: "Last 24 hours", bucket: "hour" },
@@ -26,13 +27,19 @@ const RANGES = [
 const PARAMS = [
   { key: "pH", label: "pH", unit: "" },
   { key: "turbidity", label: "Turbidity", unit: "NTU" },
-  { key: "temperature", label: "Temperature", unit: "°C" },
-  { key: "TDS", label: "TDS", unit: "ppm" }
+  { key: "TDS", label: "TDS", unit: "ppm" },
+  { key: "flowRate", label: "Flow rate", unit: "L/min" }
 ];
+
+async function downloadReport(type, { from, to, plantId, bucket }) {
+  const filename = `waternet-${type}-${from.slice(0, 10)}.csv`;
+  await api.download("/api/reports/export", filename, { type, from, to, plantId: plantId || undefined, bucket });
+}
 
 export default function ReportsPage() {
   const [days, setDays] = useState(7);
   const [plantId, setPlantId] = useState("");
+  const [downloading, setDownloading] = useState(null);
   const plants = usePlants();
   const range = RANGES.find((r) => r.value === days) || RANGES[1];
 
@@ -92,10 +99,24 @@ export default function ReportsPage() {
       </Card>
 
       <section className="mb-6">
-        <h2 className="text-base font-semibold text-slate-900 mb-3 flex items-center gap-2">
-          <TrendingUp size={16} className="text-brand-600" />
-          Water quality trends
-        </h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+            <TrendingUp size={16} className="text-brand-600" />
+            Water quality trends
+          </h2>
+          <button
+            onClick={async () => {
+              setDownloading("quality");
+              try { await downloadReport("quality", { from, to, plantId, bucket: range.bucket }); }
+              finally { setDownloading(null); }
+            }}
+            disabled={downloading === "quality"}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50"
+          >
+            <Download size={14} />
+            {downloading === "quality" ? "Exporting…" : "Export CSV"}
+          </button>
+        </div>
         {trends.isLoading ? (
           <Card>
             <Spinner />
@@ -131,7 +152,23 @@ export default function ReportsPage() {
                 ? `${perf.data.totalTasks} tasks • MTTR ${fmtMinutes(perf.data.mttrMinutes)}`
                 : "Loading…"
             }
-            action={<Trophy size={18} className="text-amber-500" />}
+            action={
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={async () => {
+                    setDownloading("maintenance");
+                    try { await downloadReport("maintenance", { from, to }); }
+                    finally { setDownloading(null); }
+                  }}
+                  disabled={downloading === "maintenance"}
+                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-50"
+                >
+                  <Download size={13} />
+                  {downloading === "maintenance" ? "…" : "CSV"}
+                </button>
+                <Trophy size={18} className="text-amber-500" />
+              </div>
+            }
           />
           {perf.isLoading ? (
             <Spinner />
@@ -186,7 +223,23 @@ export default function ReportsPage() {
                 ? `Average ${uptime.data.averageUptimePct}% • expected ${uptime.data.expectedReadings} readings`
                 : "Loading…"
             }
-            action={<Activity size={18} className="text-emerald-500" />}
+            action={
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={async () => {
+                    setDownloading("uptime");
+                    try { await downloadReport("uptime", { from, to }); }
+                    finally { setDownloading(null); }
+                  }}
+                  disabled={downloading === "uptime"}
+                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-50"
+                >
+                  <Download size={13} />
+                  {downloading === "uptime" ? "…" : "CSV"}
+                </button>
+                <Activity size={18} className="text-emerald-500" />
+              </div>
+            }
           />
           {uptime.isLoading ? (
             <Spinner />

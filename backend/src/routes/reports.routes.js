@@ -4,7 +4,8 @@ const {
   qualityTrends,
   maintenancePerformance,
   uptime,
-  overview
+  overview,
+  exportCsv
 } = require("../controllers/reports.controller");
 
 const router = express.Router();
@@ -12,6 +13,7 @@ const router = express.Router();
 router.use(requireRole("ADMIN"));
 
 router.get("/overview", overview);
+router.get("/export", exportCsv);
 router.get("/quality/trends", qualityTrends);
 router.get("/maintenance/performance", maintenancePerformance);
 router.get("/uptime", uptime);

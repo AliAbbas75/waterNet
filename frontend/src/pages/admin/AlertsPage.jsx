@@ -14,7 +14,8 @@ import { relTime } from "../../lib/format.js";
 export default function AlertsPage() {
   const [status, setStatus] = useState("OPEN");
   const [type, setType] = useState("");
-  const filters = useMemo(() => ({ status, type }), [status, type]);
+  const [severity, setSeverity] = useState("");
+  const filters = useMemo(() => ({ status, type, severity }), [status, type, severity]);
   const alerts = useAlerts(filters);
   const ack = useAckAlert();
   const resolve = useResolveAlert();
@@ -110,6 +111,12 @@ export default function AlertsPage() {
             <option value="OPEN">Open</option>
             <option value="ACK">Acknowledged</option>
             <option value="RESOLVED">Resolved</option>
+          </Select>
+          <Select value={severity} onChange={(e) => setSeverity(e.target.value)}>
+            <option value="">All severities</option>
+            <option value="CRITICAL">Critical</option>
+            <option value="WARN">Warning</option>
+            <option value="INFO">Info</option>
           </Select>
           <Select value={type} onChange={(e) => setType(e.target.value)}>
             <option value="">All types</option>

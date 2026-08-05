@@ -8,7 +8,8 @@ const {
   installDevice,
   uninstallDevice,
   deleteDevice,
-  getDeviceReadings
+  getDeviceReadings,
+  injectTelemetry
 } = require("../controllers/device.controller");
 
 const router = express.Router();
@@ -20,6 +21,7 @@ router.get("/", getDevices);
 router.get("/:id", getDevice);
 router.get("/:id/readings", getDeviceReadings);
 router.post("/", createDevice);
+router.post("/:id/telemetry", requireRole("SUPER_ADMIN"), injectTelemetry);
 router.put("/:id", updateDevice);
 router.patch("/:id/install", installDevice);
 router.patch("/:id/uninstall", uninstallDevice);

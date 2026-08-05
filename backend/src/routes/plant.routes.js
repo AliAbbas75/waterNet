@@ -5,7 +5,8 @@ const {
   getPlant,
   createPlant,
   updatePlant,
-  deletePlant
+  deletePlant,
+  getPlantConsumptionMetrics
 } = require("../controllers/plant.controller");
 
 const router = express.Router();
@@ -15,6 +16,7 @@ router.use(requireRole('ADMIN'));
 
 router.get("/", getPlants);
 router.get("/:id", getPlant);
+router.get("/:id/consumption", getPlantConsumptionMetrics);
 router.post("/", createPlant);
 router.put("/:id", updatePlant);
 router.delete("/:id", deletePlant);

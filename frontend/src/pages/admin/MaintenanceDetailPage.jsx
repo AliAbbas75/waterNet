@@ -28,6 +28,10 @@ export default function MaintenanceDetailPage() {
   const assign = useAssignTask();
   const [assignOpen, setAssignOpen] = useState(false);
   const [logNote, setLogNote] = useState("");
+  const sortedLogs = useMemo(
+    () => (logs.data || []).slice().sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)),
+    [logs.data]
+  );
 
   if (task.isLoading) {
     return (
@@ -52,7 +56,6 @@ export default function MaintenanceDetailPage() {
   }
 
   const t = task.data;
-  const sortedLogs = useMemo(() => (logs.data || []).slice().sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)), [logs.data]);
 
   async function submitLog(e) {
     e.preventDefault();

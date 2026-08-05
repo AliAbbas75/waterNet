@@ -21,10 +21,11 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.0",
     "resend": "^4.0.0",
+    "run": "^1.5.0",
+    "socket.io": "^4.8.3",
     "solc": "^0.8.20",
     "swagger-ui-express": "^5.0.1",
-    "zod": "^4.3.6",
-    "run": "^1.5.0"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "nodemon": "^3.1.7"

@@ -3,14 +3,15 @@ import { useMemo } from "react";
 import { ArrowLeft, Cpu, MapPin, Clock, Activity } from "lucide-react";
 import { PageHeader } from "../../components/ui/PageHeader.jsx";
 import { Card, CardHeader } from "../../components/ui/Card.jsx";
-import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
+import { Badge, statusVariant, plantStatusVariant } from "../../components/ui/Badge.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { TimeSeriesChart } from "../../components/charts/TimeSeriesChart.jsx";
 import { PlantMap } from "../../components/map/PlantMap.jsx";
 import { DataTable } from "../../components/ui/DataTable.jsx";
-import { usePlant, usePlantState } from "../../hooks/usePlants.js";
+import { usePlant, usePlantState, usePlantConsumption } from "../../hooks/usePlants.js";
+import { ConsumptionCard, ConsumptionBadge } from "../../components/plants/ConsumptionCard.jsx";
 import { useDevices, useDeviceReadings } from "../../hooks/useDevices.js";
 import { useThresholds } from "../../hooks/useThresholds.js";
 import { fmtNum, relTime, fmtDate } from "../../lib/format.js";
@@ -18,14 +19,15 @@ import { fmtNum, relTime, fmtDate } from "../../lib/format.js";
 const PARAMS = [
   { key: "pH", label: "pH", unit: "" },
   { key: "turbidity", label: "Turbidity", unit: "NTU" },
-  { key: "temperature", label: "Temperature", unit: "°C" },
-  { key: "TDS", label: "TDS", unit: "ppm" }
+  { key: "TDS", label: "TDS", unit: "ppm" },
+  { key: "flowRate", label: "Flow rate", unit: "L/min" }
 ];
 
 export default function PlantDetailPage() {
   const { id } = useParams();
   const plant = usePlant(id);
   const state = usePlantState(id);
+  const consumption = usePlantConsumption(id);
   const devices = useDevices({ plantId: id });
   const globalThresholds = useThresholds();
   const plantThresholds = useThresholds(id);
@@ -101,21 +103,27 @@ export default function PlantDetailPage() {
         }
         action={
           <div className="flex items-center gap-2">
-            <Badge variant={statusVariant(p.operationalStatus)} dot>
+            <Badge variant={plantStatusVariant(p.operationalStatus)} dot>
               {p.operationalStatus}
             </Badge>
             <Badge variant={statusVariant(overall)} dot>
               Water: {overall.replace("_", " ")}
             </Badge>
+            <ConsumptionBadge consumption={consumption.data} />
           </div>
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-        <Card className="lg:col-span-2" padded={false}>
-          <PlantMap plants={mapItem} height={280} zoom={13} />
-        </Card>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-4 sm:mb-6">
+        <div className="lg:col-span-2">
+          <Card padded={false}>
+            <PlantMap plants={mapItem} height={280} zoom={13} />
+          </Card>
+        </div>
+        <ConsumptionCard query={consumption} />
+      </div>
 
+      <div>
         <Card>
           <CardHeader title="Devices at this plant" subtitle={`${devices.data?.length || 0} installed`} />
           {devices.isLoading ? (

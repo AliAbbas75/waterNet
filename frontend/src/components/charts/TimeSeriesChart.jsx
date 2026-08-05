@@ -14,8 +14,8 @@ import { format } from "date-fns";
 const COLORS = {
   pH: "#0e7490",
   turbidity: "#0891b2",
-  temperature: "#a16207",
-  TDS: "#7c3aed"
+  TDS: "#7c3aed",
+  flowRate: "#a16207"
 };
 
 export function TimeSeriesChart({ data, dataKey, label, unit, threshold, height = 220 }) {

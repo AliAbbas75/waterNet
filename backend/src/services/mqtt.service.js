@@ -5,6 +5,8 @@ const TelemetryReading = require("../models/TelemetryReading");
 const Device = require("../models/Device");
 const { evaluateQuality } = require("../controllers/analysis.controller");
 const Alert = require("../models/Alert");
+const { notifyAdminsOfAlert } = require("./alert.notification.service");
+const { emit: socketEmit } = require("./socket.service");
 
 let client = null;
 let connectPromise = null;
@@ -31,10 +33,19 @@ function isDeviceIdMismatch(topicDeviceId, payload) {
   return String(payload.deviceId) !== String(topicDeviceId);
 }
 
+function getTopicPattern(envName, fallback) {
+  const value = process.env[envName] || fallback;
+  return value && value.trim() ? value.trim() : fallback;
+}
+
 function connectMqtt() {
   if (connectPromise) return connectPromise;
 
   const brokerUrl = process.env.MQTT_BROKER_URL || "mqtt://localhost:1883";
+  const topicPrefix = getTopicPattern("MQTT_TOPIC_PREFIX", "waternet/v1/devices");
+  const telemetryTopic = getTopicPattern("MQTT_TELEMETRY_TOPIC", `${topicPrefix}/+/telemetry`);
+  const healthTopic = getTopicPattern("MQTT_HEALTH_TOPIC", `${topicPrefix}/+/health`);
+  const lwtTopic = getTopicPattern("MQTT_LWT_TOPIC", `${topicPrefix}/+/lwt`);
   const options = {
     username: process.env.MQTT_USERNAME || undefined,
     password: process.env.MQTT_PASSWORD || undefined,
@@ -88,15 +99,16 @@ function connectMqtt() {
     console.log("Connected to MQTT broker");
 
     // Subscribe to telemetry and health topics
-    client.subscribe("waternet/v1/devices/+/telemetry", { qos: 1 });
-    client.subscribe("waternet/v1/devices/+/health", { qos: 1 });
-    client.subscribe("waternet/v1/devices/+/lwt", { qos: 1 });
+    console.log(`Subscribing to MQTT topics: ${telemetryTopic}, ${healthTopic}, ${lwtTopic}`);
+    client.subscribe(telemetryTopic, { qos: 1 });
+    client.subscribe(healthTopic, { qos: 1 });
+    client.subscribe(lwtTopic, { qos: 1 });
   });
 
   client.on("message", async (topic, message) => {
     try {
       const parts = topic.split("/");
-      const deviceId = parts[3];
+      const deviceId = parts[parts.length - 2];
 
       if (!deviceId) return;
 
@@ -160,7 +172,7 @@ function connectMqtt() {
       });
 
       for (const device of devicesToOffline) {
-        await Device.findByIdAndUpdate(device._id, { availability: "UNAVAILABLE" });
+        await setAvailability(device, "UNAVAILABLE");
 
         // Create alert
         const existing = await Alert.findOne({
@@ -170,13 +182,17 @@ function connectMqtt() {
         });
 
         if (!existing) {
-          await Alert.create({
+          const alert = await Alert.create({
             type: "DEVICE_OFFLINE",
             severity: "WARN",
             plantId: device.plantId,
             deviceId: device._id,
             message: `Device ${device.deviceId} is offline`
           });
+          socketEmit("alert:new", { alert });
+          notifyAdminsOfAlert(alert).catch((err) =>
+            console.error("Alert notification error:", err?.message || err)
+          );
         }
       }
     } catch (err) {
@@ -187,19 +203,107 @@ function connectMqtt() {
   return connectPromise;
 }
 
-async function handleTelemetry(device, payload) {
-  const { schemaVersion, timestamp, readings } = payload;
+// Updates availability and pushes a socket event only when the value actually
+// flips. findByIdAndUpdate returns the pre-update document, which is what makes
+// the comparison possible — emitting unconditionally would fire on every
+// telemetry message and make the dashboard refetch devices several times a
+// minute for no state change.
+async function setAvailability(device, availability, extra = {}) {
+  const previous = await Device.findByIdAndUpdate(device._id, { availability, ...extra });
+  if (!previous || previous.availability === availability) return false;
 
-  if (!schemaVersion || !timestamp || !readings) {
-    console.error("Invalid telemetry payload");
+  socketEmit("device:availability", {
+    deviceRef: device._id.toString(),
+    deviceId: device.deviceId,
+    plantId: device.plantId ? String(device.plantId) : null,
+    availability,
+    lastSeenAt: extra.lastSeenAt ?? previous.lastSeenAt ?? null
+  });
+  return true;
+}
+
+// Sensors report reading names with inconsistent casing (`tds` vs `TDS`). Map
+// them onto the canonical names the model, thresholds and UI all key off.
+const READING_KEY_ALIASES = {
+  ph: "pH",
+  turbidity: "turbidity",
+  tds: "TDS",
+  flowrate: "flowRate",
+  totallitres: "totalLitres",
+  totalliters: "totalLitres"
+};
+
+// Temperature is deliberately not tracked. Devices in the field still publish it,
+// so it is dropped quietly here — routing it through the unrecognized-key warning
+// below would flood the logs at every telemetry interval.
+const IGNORED_READING_KEYS = new Set(["temperature", "temp"]);
+
+function normalizeReadings(raw) {
+  const readings = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const lowerKey = key.toLowerCase();
+    if (IGNORED_READING_KEYS.has(lowerKey)) continue;
+
+    const canonical = READING_KEY_ALIASES[lowerKey];
+    // Drop unknown keys rather than letting mongoose silently strip them, so
+    // the "unmapped sensor field" case is visible in logs instead of vanishing.
+    if (!canonical) {
+      console.warn(`Ignoring unrecognized telemetry reading "${key}"`);
+      continue;
+    }
+    const num = Number(value);
+    if (!Number.isFinite(num)) {
+      console.warn(`Ignoring non-numeric telemetry reading "${key}": ${value}`);
+      continue;
+    }
+    readings[canonical] = num;
+  }
+  return readings;
+}
+
+// Accepts both the documented envelope
+//   { schemaVersion, timestamp, readings: { pH, turbidity, TDS } }
+// and the flat form firmware actually publishes
+//   { pH, turbidity, tds, flowRate, totalLitres }
+// Envelope fields are optional in the flat form: schemaVersion falls back to a
+// default and timestamp to broker-receipt time, since the device sends neither.
+function normalizeTelemetryPayload(payload) {
+  const isEnvelope = payload.readings && typeof payload.readings === "object";
+  const rawReadings = isEnvelope ? payload.readings : payload;
+  const readings = normalizeReadings(rawReadings);
+
+  if (Object.keys(readings).length === 0) return null;
+
+  let timestamp = new Date(payload.timestamp ?? Date.now());
+  if (Number.isNaN(timestamp.getTime())) {
+    console.warn(`Invalid telemetry timestamp "${payload.timestamp}", using receipt time`);
+    timestamp = new Date();
+  }
+
+  return {
+    schemaVersion: String(
+      payload.schemaVersion || process.env.MQTT_DEFAULT_SCHEMA_VERSION || "1.0"
+    ),
+    timestamp,
+    readings
+  };
+}
+
+async function handleTelemetry(device, rawPayload) {
+  const normalized = normalizeTelemetryPayload(rawPayload);
+
+  if (!normalized) {
+    console.error("Invalid telemetry payload: no recognizable readings");
     return;
   }
+
+  const { schemaVersion, timestamp, readings } = normalized;
 
   const telemetry = new TelemetryReading({
     deviceRef: device._id,
     deviceId: device.deviceId,
     plantId: device.plantId,
-    timestamp: new Date(timestamp),
+    timestamp,
     readings,
     ingestMeta: {
       schemaVersion,
@@ -209,8 +313,14 @@ async function handleTelemetry(device, payload) {
 
   await telemetry.save();
 
-  // Update device lastSeenAt
-  await Device.findByIdAndUpdate(device._id, { lastSeenAt: new Date() });
+  // Mark device online — telemetry counts as a heartbeat
+  await setAvailability(device, "AVAILABLE", { lastSeenAt: new Date() });
+
+  // Resolve any open DEVICE_OFFLINE alert now that we are receiving data
+  await Alert.updateMany(
+    { type: "DEVICE_OFFLINE", deviceId: device._id, status: { $in: ["OPEN", "ACK"] } },
+    { status: "RESOLVED", resolvedAt: new Date() }
+  );
 
   // Evaluate water quality (best-effort)
   try {
@@ -234,23 +344,77 @@ async function handleTelemetry(device, payload) {
     );
   }
 
+  socketEmit("telemetry:new", {
+    // Clients key off the Mongo id (that is what device routes use), so send
+    // both rather than making every consumer resolve deviceId -> _id.
+    deviceRef: device._id.toString(),
+    deviceId: device.deviceId,
+    plantId: device.plantId,
+    timestamp,
+    readings
+  });
+
   console.log(`Stored telemetry for device ${device.deviceId}`);
 }
 
-async function handleHealth(device, payload) {
-  const { schemaVersion, timestamp, health } = payload;
+const HEALTH_KEY_ALIASES = {
+  uptime: "uptime",
+  uptimeseconds: "uptime",
+  connectivitystatus: "connectivityStatus",
+  connectivity: "connectivityStatus"
+};
 
-  if (!schemaVersion || !timestamp || !health) {
-    console.error("Invalid health payload");
+// Mirrors normalizeTelemetryPayload: accepts the `{ schemaVersion, timestamp,
+// health: {...} }` envelope or the flat `{ uptime, connectivityStatus }` form.
+function normalizeHealthPayload(payload) {
+  const isEnvelope = payload.health && typeof payload.health === "object";
+  const rawHealth = isEnvelope ? payload.health : payload;
+
+  const health = {};
+  for (const [key, value] of Object.entries(rawHealth)) {
+    const canonical = HEALTH_KEY_ALIASES[key.toLowerCase()];
+    if (!canonical) continue;
+    if (canonical === "uptime") {
+      const num = Number(value);
+      if (Number.isFinite(num)) health.uptime = num;
+    } else {
+      health.connectivityStatus = String(value);
+    }
+  }
+
+  if (Object.keys(health).length === 0) return null;
+
+  let timestamp = new Date(payload.timestamp ?? Date.now());
+  if (Number.isNaN(timestamp.getTime())) {
+    console.warn(`Invalid health timestamp "${payload.timestamp}", using receipt time`);
+    timestamp = new Date();
+  }
+
+  return {
+    schemaVersion: String(
+      payload.schemaVersion || process.env.MQTT_DEFAULT_SCHEMA_VERSION || "1.0"
+    ),
+    timestamp,
+    health
+  };
+}
+
+async function handleHealth(device, rawPayload) {
+  const normalized = normalizeHealthPayload(rawPayload);
+
+  if (!normalized) {
+    console.error("Invalid health payload: no recognizable health fields");
     return;
   }
+
+  const { schemaVersion, timestamp, health } = normalized;
 
   // Store as telemetry with health
   const telemetry = new TelemetryReading({
     deviceRef: device._id,
     deviceId: device.deviceId,
     plantId: device.plantId,
-    timestamp: new Date(timestamp),
+    timestamp,
     health,
     ingestMeta: {
       schemaVersion,
@@ -261,10 +425,13 @@ async function handleHealth(device, payload) {
   await telemetry.save();
 
   // Update device lastSeenAt and availability
-  await Device.findByIdAndUpdate(device._id, {
-    lastSeenAt: new Date(),
-    availability: "AVAILABLE"
-  });
+  await setAvailability(device, "AVAILABLE", { lastSeenAt: new Date() });
+
+  // Resolve any open DEVICE_OFFLINE alert now that the device is back
+  await Alert.updateMany(
+    { type: "DEVICE_OFFLINE", deviceId: device._id, status: { $in: ["OPEN", "ACK"] } },
+    { status: "RESOLVED", resolvedAt: new Date() }
+  );
 
   // Publish retained online status
   if (client && client.connected) {
@@ -285,26 +452,45 @@ async function handleHealth(device, payload) {
 
 async function handleLwt(device, payloadText) {
   // LWT payload is often a raw string like "offline"
-  if (String(payloadText).trim().toLowerCase() === "offline") {
-    await Device.findByIdAndUpdate(device._id, {
-      availability: "UNAVAILABLE"
-    });
+  if (String(payloadText).trim().toLowerCase() !== "offline") return;
 
-    // Publish retained offline status
-    if (client && client.connected) {
-      client.publish(
-        `waternet/v1/devices/${device.deviceId}/status`,
-        JSON.stringify({
-          deviceId: device.deviceId,
-          status: "offline",
-          lastSeenAt: device.lastSeenAt ? device.lastSeenAt.toISOString() : null
-        }),
-        { qos: 1, retain: true }
-      );
-    }
+  await setAvailability(device, "UNAVAILABLE");
 
-    console.log(`Device ${device.deviceId} went offline (LWT)`);
+  // Publish retained offline status
+  if (client && client.connected) {
+    client.publish(
+      `waternet/v1/devices/${device.deviceId}/status`,
+      JSON.stringify({
+        deviceId: device.deviceId,
+        status: "offline",
+        lastSeenAt: device.lastSeenAt ? device.lastSeenAt.toISOString() : null
+      }),
+      { qos: 1, retain: true }
+    );
   }
+
+  // Create alert immediately — the cron won't catch LWT-triggered offline because
+  // the device is already UNAVAILABLE by the time the cron runs its AVAILABLE→UNAVAILABLE query.
+  const existing = await Alert.findOne({
+    type: "DEVICE_OFFLINE",
+    deviceId: device._id,
+    status: { $in: ["OPEN", "ACK"] }
+  });
+  if (!existing) {
+    const alert = await Alert.create({
+      type: "DEVICE_OFFLINE",
+      severity: "WARN",
+      plantId: device.plantId,
+      deviceId: device._id,
+      message: `Device ${device.deviceId} disconnected (LWT)`
+    });
+    socketEmit("alert:new", { alert });
+    notifyAdminsOfAlert(alert).catch((err) =>
+      console.error("Alert notification error:", err?.message || err)
+    );
+  }
+
+  console.log(`Device ${device.deviceId} went offline (LWT)`);
 }
 
 function disconnectMqtt() {
@@ -313,4 +499,4 @@ function disconnectMqtt() {
   }
 }
 
-module.exports = { connectMqtt, disconnectMqtt };
+module.exports = { connectMqtt, disconnectMqtt, handleTelemetryPayload: handleTelemetry };

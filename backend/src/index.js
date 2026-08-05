@@ -1,6 +1,8 @@
+const http = require("http");
 const express = require("express");
 const cors = require("cors");
 const swaggerUi = require("swagger-ui-express");
+const { initSocket } = require("./services/socket.service");
 
 const { connectDb } = require("./config/db");
 const { assertEnv } = require("./config/env");
@@ -83,7 +85,9 @@ const port = process.env.PORT || 4000;
       console.warn("MQTT connect failed; continuing without MQTT:", err?.message || err);
     }
   }
-  const server = app.listen(port, () => {
+  const server = http.createServer(app);
+  initSocket(server);
+  server.listen(port, () => {
     console.log(`waterNet backend listening on :${port}`);
   });
   server.on("error", (err) => {

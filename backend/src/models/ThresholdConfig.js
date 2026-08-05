@@ -9,8 +9,8 @@ const thresholdConfigSchema = new mongoose.Schema(
     },
     parameter: {
       type: String,
-      required: true, // 'pH', 'turbidity', 'temperature', 'TDS'
-      enum: ['pH', 'turbidity', 'temperature', 'TDS']
+      required: true, // 'pH', 'turbidity', 'TDS', 'flowRate'
+      enum: ['pH', 'turbidity', 'TDS', 'flowRate']
     },
     safeMin: {
       type: Number,

@@ -77,5 +77,35 @@ export const api = {
   post: (path, body, opts) => request(path, { ...opts, method: "POST", body }),
   patch: (path, body, opts) => request(path, { ...opts, method: "PATCH", body }),
   put: (path, body, opts) => request(path, { ...opts, method: "PUT", body }),
-  del: (path, opts) => request(path, { ...opts, method: "DELETE" })
+  del: (path, opts) => request(path, { ...opts, method: "DELETE" }),
+
+  async download(path, filename, params) {
+    const base = backendUrl();
+    const url = new URL(
+      base ? base + path : path,
+      base ? undefined : typeof window !== "undefined" ? window.location.origin : "http://localhost"
+    );
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
+      });
+    }
+    const token = getBackendToken();
+    const res = await fetch(url, {
+      headers: {
+        Accept: "text/csv",
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+    });
+    if (!res.ok) throw new ApiError(`Export failed (${res.status})`, { status: res.status });
+    const blob = await res.blob();
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(href);
+  }
 };

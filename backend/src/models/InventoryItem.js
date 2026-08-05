@@ -22,7 +22,8 @@ const inventoryItemSchema = new mongoose.Schema(
     },
     reorderThreshold: {
       type: Number,
-      default: 0
+      default: 0,
+      min: 0
     },
     unit: {
       type: String,
@@ -31,5 +32,16 @@ const inventoryItemSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+inventoryItemSchema.pre("save", function (next) {
+  if (this.category) this.category = String(this.category).trim().toLowerCase();
+  next();
+});
+
+inventoryItemSchema.pre("findOneAndUpdate", function (next) {
+  const update = this.getUpdate();
+  if (update && update.category) update.category = String(update.category).trim().toLowerCase();
+  next();
+});
 
 module.exports = mongoose.model("InventoryItem", inventoryItemSchema);

@@ -1,6 +1,7 @@
 const Device = require("../models/Device");
 const Plant = require("../models/Plant");
 const TelemetryReading = require("../models/TelemetryReading");
+const { handleTelemetryPayload } = require("../services/mqtt.service");
 
 exports.getDevices = async (req, res, next) => {
   try {
@@ -150,6 +151,24 @@ exports.deleteDevice = async (req, res, next) => {
       return res.status(404).json({ error: 'Device not found' });
     }
     res.json({ message: 'Device deleted' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// SUPER_ADMIN only — inject a telemetry payload without real hardware (dev/testing).
+exports.injectTelemetry = async (req, res, next) => {
+  try {
+    const device = await Device.findById(req.params.id);
+    if (!device) return res.status(404).json({ error: "Device not found" });
+
+    const { schemaVersion, timestamp, readings } = req.body;
+    if (!schemaVersion || !timestamp || !readings) {
+      return res.status(400).json({ error: "schemaVersion, timestamp, and readings are required" });
+    }
+
+    await handleTelemetryPayload(device, req.body);
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }

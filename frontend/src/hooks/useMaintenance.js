@@ -1,7 +1,19 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api.js";
+import { getSocket } from "../lib/socket.js";
 
 export function useTasks(filters = {}) {
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    const s = getSocket();
+    if (!s) return;
+    const handler = () => qc.invalidateQueries({ queryKey: ["tasks"] });
+    s.on("task:updated", handler);
+    return () => s.off("task:updated", handler);
+  }, [qc]);
+
   return useQuery({
     queryKey: ["tasks", filters],
     queryFn: () => api.get("/api/maintenance/tasks", { params: filters }).then((r) => r.tasks)
@@ -9,6 +21,16 @@ export function useTasks(filters = {}) {
 }
 
 export function useMyTasks() {
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    const s = getSocket();
+    if (!s) return;
+    const handler = () => qc.invalidateQueries({ queryKey: ["my-tasks"] });
+    s.on("task:updated", handler);
+    return () => s.off("task:updated", handler);
+  }, [qc]);
+
   return useQuery({
     queryKey: ["my-tasks"],
     queryFn: () => api.get("/api/maintenance/tasks/mine").then((r) => r.tasks)
