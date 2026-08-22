@@ -62,3 +62,6 @@ __MACOSX/
 # producing blocks.
 infra/besu-network/data/*
 !infra/besu-network/data/key
+
+# Local engineering journal — working notes, not published.
+docs/
