@@ -2,11 +2,9 @@ const ThresholdConfig = require("../models/ThresholdConfig");
 const WaterQualityState = require("../models/WaterQualityState");
 const Plant = require("../models/Plant");
 const TelemetryReading = require("../models/TelemetryReading");
-const Alert = require("../models/Alert");
 const Device = require("../models/Device");
 const mongoose = require("mongoose");
-const { notifyAdminsOfAlert } = require("../services/alert.notification.service");
-const { emit: socketEmit } = require("../services/socket.service");
+const { raiseAlert, clearAlerts } = require("../services/alert.service");
 
 // Evaluate water quality for a plant/device
 async function evaluateQuality(plantId, deviceRef, deviceKey) {
@@ -102,32 +100,24 @@ async function evaluateQuality(plantId, deviceRef, deviceKey) {
   );
 
   if (overallCategory === 'UNSAFE') {
-    const existing = await Alert.findOne({
+    await raiseAlert({
+      type: 'QUALITY_UNSAFE',
+      severity: 'CRITICAL',
+      plantId,
+      deviceId: deviceRef,
+      message: `Water quality unsafe at plant ${plantId}`,
+      meta: { reasons: reasons.filter((r) => r.threshold !== 'safe').map((r) => r.parameter) }
+    });
+  } else {
+    // Readings came back inside limits. The alert stops being OPEN, but a
+    // CRITICAL water-quality incident does not close itself — clearAlerts parks
+    // it in CLEARED_PENDING_REVIEW until a person records what was done.
+    await clearAlerts({
       type: 'QUALITY_UNSAFE',
       plantId,
       deviceId: deviceRef,
-      status: { $in: ['OPEN', 'ACK'] }
+      reason: `readings returned to ${overallCategory}`
     });
-
-    if (!existing) {
-      const alert = await Alert.create({
-        type: 'QUALITY_UNSAFE',
-        severity: 'CRITICAL',
-        plantId,
-        deviceId: deviceRef,
-        message: `Water quality unsafe at plant ${plantId}`
-      });
-      socketEmit("alert:new", { alert });
-      notifyAdminsOfAlert(alert).catch((err) =>
-        console.error("Alert notification error:", err?.message || err)
-      );
-    }
-  } else {
-    // Quality recovered — resolve any open QUALITY_UNSAFE alert for this device
-    await Alert.updateMany(
-      { type: 'QUALITY_UNSAFE', plantId, deviceId: deviceRef, status: { $in: ['OPEN', 'ACK'] } },
-      { status: 'RESOLVED', resolvedAt: new Date() }
-    );
   }
 
   return overallCategory;

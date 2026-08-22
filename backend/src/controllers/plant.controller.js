@@ -1,7 +1,7 @@
 const Plant = require("../models/Plant");
-const Alert = require("../models/Alert");
 const { emit: socketEmit } = require("../services/socket.service");
-const { notifyAdminsOfAlert } = require("../services/alert.notification.service");
+const { raiseAlert, clearAlerts } = require("../services/alert.service");
+const { logAudit } = require("../services/audit.service");
 const { getPlantConsumption, getConsumptionForPlants } = require("../services/consumption.service");
 
 exports.getPlants = async (req, res, next) => {
@@ -112,49 +112,42 @@ exports.updatePlant = async (req, res, next) => {
     const newStatus = plant.operationalStatus;
 
     if (prevStatus !== newStatus) {
+      // Every closure needs an explanation on the record, whether an incident
+      // drove it or an admin simply scheduled maintenance.
+      await logAudit({
+        event: 'plant.status_changed',
+        req,
+        actorUserId: req.user?._id || null,
+        targetType: 'PLANT',
+        targetId: plant._id,
+        meta: { from: prevStatus, to: newStatus, plantName: plant.name }
+      });
+
       if (newStatus === 'OPERATIONAL') {
-        // Plant restored — resolve any open availability alert
-        await Alert.updateMany(
-          { type: 'AVAILABILITY_CHANGE', plantId: plant._id, status: { $in: ['OPEN', 'ACK'] } },
-          { status: 'RESOLVED', resolvedAt: new Date() }
-        );
-      } else {
-        // Plant went CLOSED or MAINTENANCE
-        const existing = await Alert.findOne({
+        await clearAlerts({
           type: 'AVAILABILITY_CHANGE',
           plantId: plant._id,
-          status: { $in: ['OPEN', 'ACK'] }
+          reason: 'plant returned to operational'
         });
-        if (!existing) {
-          const alert = await Alert.create({
-            type: 'AVAILABILITY_CHANGE',
-            severity: newStatus === 'CLOSED' ? 'CRITICAL' : 'WARN',
-            plantId: plant._id,
-            message: `Plant "${plant.name}" is now ${newStatus.toLowerCase()}`
-          });
-          socketEmit("alert:new", { alert });
-          // Broadcast availability change to public namespace for public users
-          socketEmit("plant:availability", {
-            plantId: plant._id,
-            plantName: plant.name,
-            operationalStatus: newStatus,
-            available: false
-          });
-          notifyAdminsOfAlert(alert).catch((err) =>
-            console.error("Alert notification error:", err?.message || err)
-          );
-        }
+      } else {
+        await raiseAlert({
+          type: 'AVAILABILITY_CHANGE',
+          severity: newStatus === 'CLOSED' ? 'CRITICAL' : 'WARN',
+          plantId: plant._id,
+          message: `Plant "${plant.name}" is now ${newStatus.toLowerCase()}`,
+          meta: { from: prevStatus, to: newStatus }
+        });
       }
 
-      // Always broadcast current status to public namespace on any change
-      if (newStatus === 'OPERATIONAL') {
-        socketEmit("plant:availability", {
-          plantId: plant._id,
-          plantName: plant.name,
-          operationalStatus: newStatus,
-          available: true
-        });
-      }
+      // Broadcast on every status change. This used to sit inside the
+      // "no existing alert" branch, so a second status change while an alert
+      // was still open left the public view showing stale availability.
+      socketEmit("plant:availability", {
+        plantId: plant._id,
+        plantName: plant.name,
+        operationalStatus: newStatus,
+        available: newStatus === 'OPERATIONAL'
+      });
     }
 
     res.json({ plant });

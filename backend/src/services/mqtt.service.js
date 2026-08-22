@@ -4,8 +4,7 @@ const cron = require("node-cron");
 const TelemetryReading = require("../models/TelemetryReading");
 const Device = require("../models/Device");
 const { evaluateQuality } = require("../controllers/analysis.controller");
-const Alert = require("../models/Alert");
-const { notifyAdminsOfAlert } = require("./alert.notification.service");
+const { raiseAlert, clearAlerts } = require("./alert.service");
 const { emit: socketEmit } = require("./socket.service");
 
 let client = null;
@@ -174,26 +173,14 @@ function connectMqtt() {
       for (const device of devicesToOffline) {
         await setAvailability(device, "UNAVAILABLE");
 
-        // Create alert
-        const existing = await Alert.findOne({
+        await raiseAlert({
           type: "DEVICE_OFFLINE",
+          severity: "WARN",
+          plantId: device.plantId,
           deviceId: device._id,
-          status: { $in: ["OPEN", "ACK"] }
+          message: `Device ${device.deviceId} is offline`,
+          meta: { detectedBy: "availability-sweep", lastSeenAt: device.lastSeenAt }
         });
-
-        if (!existing) {
-          const alert = await Alert.create({
-            type: "DEVICE_OFFLINE",
-            severity: "WARN",
-            plantId: device.plantId,
-            deviceId: device._id,
-            message: `Device ${device.deviceId} is offline`
-          });
-          socketEmit("alert:new", { alert });
-          notifyAdminsOfAlert(alert).catch((err) =>
-            console.error("Alert notification error:", err?.message || err)
-          );
-        }
       }
     } catch (err) {
       console.error("Error in availability check:", err);
@@ -317,10 +304,11 @@ async function handleTelemetry(device, rawPayload) {
   await setAvailability(device, "AVAILABLE", { lastSeenAt: new Date() });
 
   // Resolve any open DEVICE_OFFLINE alert now that we are receiving data
-  await Alert.updateMany(
-    { type: "DEVICE_OFFLINE", deviceId: device._id, status: { $in: ["OPEN", "ACK"] } },
-    { status: "RESOLVED", resolvedAt: new Date() }
-  );
+  await clearAlerts({
+    type: "DEVICE_OFFLINE",
+    deviceId: device._id,
+    reason: "device reporting again"
+  });
 
   // Evaluate water quality (best-effort)
   try {
@@ -428,10 +416,11 @@ async function handleHealth(device, rawPayload) {
   await setAvailability(device, "AVAILABLE", { lastSeenAt: new Date() });
 
   // Resolve any open DEVICE_OFFLINE alert now that the device is back
-  await Alert.updateMany(
-    { type: "DEVICE_OFFLINE", deviceId: device._id, status: { $in: ["OPEN", "ACK"] } },
-    { status: "RESOLVED", resolvedAt: new Date() }
-  );
+  await clearAlerts({
+    type: "DEVICE_OFFLINE",
+    deviceId: device._id,
+    reason: "device reporting again"
+  });
 
   // Publish retained online status
   if (client && client.connected) {
@@ -471,24 +460,14 @@ async function handleLwt(device, payloadText) {
 
   // Create alert immediately — the cron won't catch LWT-triggered offline because
   // the device is already UNAVAILABLE by the time the cron runs its AVAILABLE→UNAVAILABLE query.
-  const existing = await Alert.findOne({
+  await raiseAlert({
     type: "DEVICE_OFFLINE",
+    severity: "WARN",
+    plantId: device.plantId,
     deviceId: device._id,
-    status: { $in: ["OPEN", "ACK"] }
+    message: `Device ${device.deviceId} disconnected (LWT)`,
+    meta: { detectedBy: "lwt" }
   });
-  if (!existing) {
-    const alert = await Alert.create({
-      type: "DEVICE_OFFLINE",
-      severity: "WARN",
-      plantId: device.plantId,
-      deviceId: device._id,
-      message: `Device ${device.deviceId} disconnected (LWT)`
-    });
-    socketEmit("alert:new", { alert });
-    notifyAdminsOfAlert(alert).catch((err) =>
-      console.error("Alert notification error:", err?.message || err)
-    );
-  }
 
   console.log(`Device ${device.deviceId} went offline (LWT)`);
 }

@@ -11,6 +11,15 @@ import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { useAckAlert, useAlerts, useResolveAlert } from "../../hooks/useAlerts.js";
 import { relTime } from "../../lib/format.js";
 
+// The monitored condition stopped on its own, but a person still has to
+// record what was done before the alert can close.
+const STATUS_LABEL = {
+  OPEN: "Open",
+  ACK: "Acknowledged",
+  CLEARED_PENDING_REVIEW: "Awaiting review",
+  RESOLVED: "Resolved"
+};
+
 export default function AlertsPage() {
   const [status, setStatus] = useState("OPEN");
   const [type, setType] = useState("");
@@ -52,8 +61,8 @@ export default function AlertsPage() {
         key: "status",
         header: "Status",
         render: (a) => (
-          <Badge variant={statusVariant(a.status)} dot>
-            {a.status}
+          <Badge variant={a.status === "CLEARED_PENDING_REVIEW" ? "warn" : statusVariant(a.status)} dot>
+            {STATUS_LABEL[a.status] || a.status}
           </Badge>
         )
       },
@@ -110,6 +119,7 @@ export default function AlertsPage() {
             <option value="">All statuses</option>
             <option value="OPEN">Open</option>
             <option value="ACK">Acknowledged</option>
+            <option value="CLEARED_PENDING_REVIEW">Awaiting review</option>
             <option value="RESOLVED">Resolved</option>
           </Select>
           <Select value={severity} onChange={(e) => setSeverity(e.target.value)}>

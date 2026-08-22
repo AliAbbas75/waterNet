@@ -1,4 +1,15 @@
 const Alert = require("../models/Alert");
+const {
+  acknowledgeAlert: acknowledge,
+  resolveAlert: resolve
+} = require("../services/alert.service");
+
+function populate(id) {
+  return Alert.findById(id)
+    .populate("plantId", "name")
+    .populate("deviceId", "deviceId")
+    .populate("inventoryItemId", "name");
+}
 
 const SEVERITY_ORDER = { CRITICAL: 0, WARN: 1, INFO: 2 };
 
@@ -34,20 +45,12 @@ exports.getAlerts = async (req, res, next) => {
 
 exports.ackAlert = async (req, res, next) => {
   try {
-    const alert = await Alert.findByIdAndUpdate(
-      req.params.id,
-      {
-        status: 'ACK',
-        ackAt: new Date(),
-        ackByUserId: req.user._id
-      },
-      { new: true }
-    ).populate('plantId', 'name').populate('deviceId', 'deviceId').populate('inventoryItemId', 'name');
-
-    if (!alert) {
-      return res.status(404).json({ error: 'Alert not found' });
+    const result = await acknowledge({ alertId: req.params.id, user: req.user, req });
+    if (result.error === 'NOT_FOUND') return res.status(404).json({ error: 'Alert not found' });
+    if (result.error === 'ALREADY_RESOLVED') {
+      return res.status(409).json({ error: 'Alert is already resolved' });
     }
-
+    const alert = await populate(result.alert._id);
     res.json({ alert });
   } catch (err) {
     next(err);
@@ -56,20 +59,16 @@ exports.ackAlert = async (req, res, next) => {
 
 exports.resolveAlert = async (req, res, next) => {
   try {
-    const alert = await Alert.findByIdAndUpdate(
-      req.params.id,
-      {
-        status: 'RESOLVED',
-        resolvedAt: new Date(),
-        resolvedByUserId: req.user._id
-      },
-      { new: true }
-    ).populate('plantId', 'name').populate('deviceId', 'deviceId').populate('inventoryItemId', 'name');
-
-    if (!alert) {
-      return res.status(404).json({ error: 'Alert not found' });
+    // The note is optional for now and recorded to the audit trail. It becomes
+    // mandatory in Phase 2, when tickets own the response and closing one
+    // without saying what was done stops being acceptable.
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim() || null : null;
+    const result = await resolve({ alertId: req.params.id, user: req.user, req, note });
+    if (result.error === 'NOT_FOUND') return res.status(404).json({ error: 'Alert not found' });
+    if (result.error === 'ALREADY_RESOLVED') {
+      return res.status(409).json({ error: 'Alert is already resolved' });
     }
-
+    const alert = await populate(result.alert._id);
     res.json({ alert });
   } catch (err) {
     next(err);

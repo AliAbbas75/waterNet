@@ -33,8 +33,20 @@ const alertSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['OPEN', 'ACK', 'RESOLVED'],
+      // CLEARED_PENDING_REVIEW: the underlying condition stopped, but the alert
+      // is not closed because a person still has to record what was done. Used
+      // for alerts whose severity means the response matters even after the
+      // symptom disappears — a water-quality breach does not become a non-event
+      // just because the next reading came back inside limits.
+      enum: ['OPEN', 'ACK', 'CLEARED_PENDING_REVIEW', 'RESOLVED'],
       default: 'OPEN'
+    },
+    // When the machine-observed condition stopped, as distinct from when a
+    // human closed the alert. On an auto-cleared alert these differ, and the
+    // gap between them is the response time.
+    conditionClearedAt: {
+      type: Date,
+      default: null
     },
     ackAt: {
       type: Date,
