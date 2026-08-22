@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, Clock, Droplet, MapPin, MessageSquarePlus, Activity } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader } from "../../components/ui/Card.jsx";
 import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
@@ -7,17 +9,31 @@ import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { PlantMap } from "../../components/map/PlantMap.jsx";
 import { usePublicPlantStatus } from "../../hooks/usePublic.js";
+import { getPublicSocket } from "../../lib/socket.js";
 import { fmtNum, relTime } from "../../lib/format.js";
 
 const PARAMS = [
   { key: "pH", label: "pH", unit: "" },
   { key: "turbidity", label: "Turbidity", unit: "NTU" },
-  { key: "temperature", label: "Temperature", unit: "°C" },
-  { key: "TDS", label: "TDS", unit: "ppm" }
+  { key: "TDS", label: "TDS", unit: "ppm" },
+  { key: "flowRate", label: "Flow rate", unit: "L/min" }
 ];
 
 export default function PublicPlantDetailPage() {
   const { id } = useParams();
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    const s = getPublicSocket();
+    if (!s) return;
+    const handler = (data) => {
+      if (String(data.plantId) === String(id)) {
+        qc.invalidateQueries({ queryKey: ["public-plant-status", id] });
+      }
+    };
+    s.on("plant:availability", handler);
+    return () => s.off("plant:availability", handler);
+  }, [id, qc]);
   const navigate = useNavigate();
   const status = usePublicPlantStatus(id);
 
@@ -168,7 +184,7 @@ function aggregateLatest(readings) {
   const counts = {};
   Object.values(readings).forEach((r) => {
     if (!r?.readings) return;
-    for (const k of ["pH", "turbidity", "temperature", "TDS"]) {
+    for (const k of ["pH", "turbidity", "TDS", "flowRate"]) {
       if (typeof r.readings[k] === "number") {
         out[k] = (out[k] || 0) + r.readings[k];
         counts[k] = (counts[k] || 0) + 1;

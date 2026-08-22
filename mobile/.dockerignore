@@ -1,0 +1,10 @@
+node_modules
+.expo
+.expo-shared
+.cache
+.parcel-cache
+dist
+web-build
+coverage
+android
+ios

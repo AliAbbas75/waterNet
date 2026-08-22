@@ -1,5 +1,12 @@
 const InventoryItem = require("../models/InventoryItem");
 const Alert = require("../models/Alert");
+const { emit: socketEmit } = require("../services/socket.service");
+const { notifyAdminsOfAlert } = require("../services/alert.notification.service");
+const {
+  checkLowStock,
+  autoResolveIfRestocked,
+  resolveAlertsForDeletedItem
+} = require("../services/inventory.service");
 
 exports.getInventory = async (req, res, next) => {
   try {
@@ -8,8 +15,8 @@ exports.getInventory = async (req, res, next) => {
 
     if (category) query.category = category;
     if (status) query.status = status;
-    if (lowStock === 'true') {
-      query.$expr = { $lt: ['$quantity', '$reorderThreshold'] };
+    if (lowStock === "true") {
+      query.$expr = { $lt: ["$quantity", "$reorderThreshold"] };
     }
 
     const items = await InventoryItem.find(query).sort({ category: 1, name: 1 });
@@ -23,7 +30,7 @@ exports.getInventoryItem = async (req, res, next) => {
   try {
     const item = await InventoryItem.findById(req.params.id);
     if (!item) {
-      return res.status(404).json({ error: 'Inventory item not found' });
+      return res.status(404).json({ error: "Inventory item not found" });
     }
     res.json({ item });
   } catch (err) {
@@ -36,19 +43,23 @@ exports.createInventoryItem = async (req, res, next) => {
     const { category, name, status, quantity, reorderThreshold, unit } = req.body;
 
     if (!category || !name || quantity === undefined) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
     const item = new InventoryItem({
       category,
       name,
-      status: status || 'AVAILABLE',
+      status: status || "AVAILABLE",
       quantity,
       reorderThreshold: reorderThreshold || 0,
-      unit: unit || 'pieces'
+      unit: unit || "pieces"
     });
 
     await item.save();
+
+    // Fire alert immediately if starting below threshold
+    await checkLowStock(item);
+
     res.status(201).json({ item });
   } catch (err) {
     next(err);
@@ -66,26 +77,14 @@ exports.updateInventoryItem = async (req, res, next) => {
     );
 
     if (!item) {
-      return res.status(404).json({ error: 'Inventory item not found' });
+      return res.status(404).json({ error: "Inventory item not found" });
     }
 
-    // Check for low stock alert
     if (item.quantity < item.reorderThreshold) {
-      // Check if alert already exists
-      const existingAlert = await Alert.findOne({
-        type: 'LOW_INVENTORY',
-        inventoryItemId: item._id,
-        status: { $in: ['OPEN', 'ACK'] }
-      });
-
-      if (!existingAlert) {
-        await Alert.create({
-          type: 'LOW_INVENTORY',
-          severity: 'WARN',
-          inventoryItemId: item._id,
-          message: `Low stock for ${item.name}: ${item.quantity} remaining (threshold: ${item.reorderThreshold})`
-        });
-      }
+      await checkLowStock(item);
+    } else {
+      // Quantity is now at or above threshold — resolve any open alert
+      await autoResolveIfRestocked(item);
     }
 
     res.json({ item });
@@ -96,11 +95,14 @@ exports.updateInventoryItem = async (req, res, next) => {
 
 exports.deleteInventoryItem = async (req, res, next) => {
   try {
+    // Resolve open alerts before removing the item so no orphaned refs remain
+    await resolveAlertsForDeletedItem(req.params.id);
+
     const item = await InventoryItem.findByIdAndDelete(req.params.id);
     if (!item) {
-      return res.status(404).json({ error: 'Inventory item not found' });
+      return res.status(404).json({ error: "Inventory item not found" });
     }
-    res.json({ message: 'Inventory item deleted' });
+    res.json({ message: "Inventory item deleted" });
   } catch (err) {
     next(err);
   }

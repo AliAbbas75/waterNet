@@ -39,6 +39,11 @@ export default function TaskDetailPage() {
   const [resolveOpen, setResolveOpen] = useState(false);
   const [logNote, setLogNote] = useState("");
 
+  const sortedLogs = useMemo(
+    () => (logs.data || []).slice().sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)),
+    [logs.data]
+  );
+
   if (task.isLoading) {
     return (
       <div className="py-12 grid place-items-center">
@@ -62,10 +67,6 @@ export default function TaskDetailPage() {
   }
 
   const t = task.data;
-  const sortedLogs = useMemo(
-    () => (logs.data || []).slice().sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)),
-    [logs.data]
-  );
 
   async function submitLog(e) {
     e.preventDefault();

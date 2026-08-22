@@ -7,7 +7,8 @@ const {
   createReport,
   myReports,
   adminListReports,
-  adminUpdateReport
+  adminUpdateReport,
+  chainProof
 } = require("../controllers/public.controller");
 
 const router = express.Router();
@@ -15,6 +16,7 @@ const router = express.Router();
 // Public (no auth required)
 router.get("/plants/nearby", listNearby);
 router.get("/plants/:id/status", plantStatus);
+router.get("/chain-proof", chainProof);
 
 // Authenticated public users (any logged-in user) can submit and view their reports.
 router.post("/reports", protect, createReport);

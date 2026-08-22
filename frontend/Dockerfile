@@ -1,22 +1,16 @@
 # Stage 1 — build the Vite bundle.
-FROM node:20-alpine AS build
+# node:22-alpine satisfies Vite 7's engine requirement (>=20.19.0 || >=22.12.0).
+FROM node:22-alpine AS build
 
 WORKDIR /app
-
-# Thirdweb pulls in native deps (bufferutil, utf-8-validate) that need node-gyp,
-# which needs python3 + a C++ toolchain. Install once for the build stage only;
-# none of this ends up in the final nginx image.
-RUN apk add --no-cache python3 make g++
 
 # Build-time config baked into the bundle. Empty VITE_BACKEND_URL means "use
 # relative URLs" — nginx proxies /api/* to the backend container.
 ARG VITE_BACKEND_URL=""
-ARG VITE_ALLOW_DEV_LOGIN="true"
-ARG VITE_THIRDWEB_CLIENT_ID=""
+ARG VITE_AUTH_BLOCKCHAIN_ENABLED="true"
 
 ENV VITE_BACKEND_URL=$VITE_BACKEND_URL \
-    VITE_ALLOW_DEV_LOGIN=$VITE_ALLOW_DEV_LOGIN \
-    VITE_THIRDWEB_CLIENT_ID=$VITE_THIRDWEB_CLIENT_ID
+    VITE_AUTH_BLOCKCHAIN_ENABLED=$VITE_AUTH_BLOCKCHAIN_ENABLED
 
 COPY package.json package-lock.json* ./
 RUN npm ci

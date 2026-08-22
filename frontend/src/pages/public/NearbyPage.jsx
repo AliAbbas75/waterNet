@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { LayoutGrid, Map as MapIcon, MapPin, Navigation } from "lucide-react";
 import clsx from "clsx";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNearbyPlants } from "../../hooks/usePublic.js";
+import { getPublicSocket } from "../../lib/socket.js";
 import { Card } from "../../components/ui/Card.jsx";
 import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
@@ -16,6 +18,16 @@ export default function NearbyPage() {
   const [coords, setCoords] = useState(ISLAMABAD_CENTER);
   const [usingMyLocation, setUsingMyLocation] = useState(false);
   const [view, setView] = useState("map"); // 'map' | 'list'
+  const qc = useQueryClient();
+
+  // Subscribe to real-time plant availability changes from the public socket namespace
+  useEffect(() => {
+    const s = getPublicSocket();
+    if (!s) return;
+    const handler = () => qc.invalidateQueries({ queryKey: ["public-nearby"] });
+    s.on("plant:availability", handler);
+    return () => s.off("plant:availability", handler);
+  }, [qc]);
 
   // Try geolocation once on mount.
   useEffect(() => {

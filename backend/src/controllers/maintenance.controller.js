@@ -3,6 +3,8 @@ const MaintenanceLog = require("../models/MaintenanceLog");
 const User = require("../models/User");
 const InventoryItem = require("../models/InventoryItem");
 const mongoose = require("mongoose");
+const { emit: socketEmit } = require("../services/socket.service");
+const { checkLowStock } = require("../services/inventory.service");
 
 // Admin: Create task
 exports.createTask = async (req, res, next) => {
@@ -92,6 +94,7 @@ exports.assignTask = async (req, res, next) => {
     await task.save();
     await task.populate(['assignedToUserId', 'assignedByUserId', 'plantId', 'deviceId']);
 
+    socketEmit("task:updated", { task });
     res.json({ task });
   } catch (err) {
     next(err);
@@ -151,7 +154,12 @@ exports.getTask = async (req, res, next) => {
     }
 
     // Check permission: admin or assigned maintainer
-    if (req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'ADMIN' && task.assignedToUserId.toString() !== req.user._id.toString()) {
+    const assignedId = task.assignedToUserId?._id || task.assignedToUserId;
+    if (
+      req.user.role !== 'SUPER_ADMIN' &&
+      req.user.role !== 'ADMIN' &&
+      String(assignedId) !== String(req.user._id)
+    ) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -178,6 +186,7 @@ exports.startTask = async (req, res, next) => {
     await task.save();
     await task.populate(['assignedToUserId', 'assignedByUserId', 'plantId', 'deviceId']);
 
+    socketEmit("task:updated", { task });
     res.json({ task });
   } catch (err) {
     next(err);
@@ -199,7 +208,12 @@ exports.addLog = async (req, res, next) => {
     }
 
     // Check permission
-    if (req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'ADMIN' && task.assignedToUserId.toString() !== req.user._id.toString()) {
+    const assignedId = task.assignedToUserId?._id || task.assignedToUserId;
+    if (
+      req.user.role !== 'SUPER_ADMIN' &&
+      req.user.role !== 'ADMIN' &&
+      String(assignedId) !== String(req.user._id)
+    ) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -228,7 +242,12 @@ exports.getLogs = async (req, res, next) => {
     }
 
     // Check permission
-    if (req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'ADMIN' && task.assignedToUserId.toString() !== req.user._id.toString()) {
+    const assignedId = task.assignedToUserId?._id || task.assignedToUserId;
+    if (
+      req.user.role !== 'SUPER_ADMIN' &&
+      req.user.role !== 'ADMIN' &&
+      String(assignedId) !== String(req.user._id)
+    ) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -287,8 +306,21 @@ exports.resolveTask = async (req, res, next) => {
     await task.save({ session });
     await session.commitTransaction();
 
+    // Low-stock checks run after commit (outside transaction) — best-effort
+    if (materials && Array.isArray(materials)) {
+      for (const mat of materials) {
+        try {
+          const item = await InventoryItem.findById(mat.itemId);
+          if (item) await checkLowStock(item);
+        } catch (err) {
+          console.error("Low-stock check failed after task resolve:", err?.message || err);
+        }
+      }
+    }
+
     await task.populate(['assignedToUserId', 'assignedByUserId', 'plantId', 'deviceId', 'resolvedByUserId']);
 
+    socketEmit("task:updated", { task });
     res.json({ task });
   } catch (err) {
     await session.abortTransaction();

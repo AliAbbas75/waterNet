@@ -1,6 +1,9 @@
 import { Route, Routes, Navigate } from "react-router-dom";
 import Login from "./pages/Login.jsx";
+import Register from "./pages/Register.jsx";
 import RoleRedirect from "./pages/RoleRedirect.jsx";
+import InviteAccept from "./pages/InviteAccept.jsx";
+import ProofPage from "./pages/ProofPage.jsx";
 import { RequireAuth, RequireRole } from "./router/Guards.jsx";
 import { AdminLayout } from "./components/layout/AdminLayout.jsx";
 import { MaintainerLayout } from "./components/layout/MaintainerLayout.jsx";
@@ -33,6 +36,9 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route path="/invite/:token" element={<InviteAccept />} />
+      <Route path="/proof" element={<ProofPage />} />
 
       <Route
         path="/admin"

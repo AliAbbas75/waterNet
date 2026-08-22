@@ -1,44 +1,30 @@
 const Alert = require("../models/Alert");
 
-function parseDateQuery(name, value) {
-  if (value === undefined || value === null || value === "") return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    const err = new Error(`${name} must be a valid date (ISO 8601 recommended)`);
-    err.statusCode = 400;
-    throw err;
-  }
-  return date;
-}
+const SEVERITY_ORDER = { CRITICAL: 0, WARN: 1, INFO: 2 };
 
 exports.getAlerts = async (req, res, next) => {
   try {
-    const { status, type, plantId, deviceId, from, to } = req.query;
+    const { status, type, severity, plantId, deviceId } = req.query;
     let query = {};
 
     if (status) query.status = status;
     if (type) query.type = type;
+    if (severity) query.severity = severity;
     if (plantId) query.plantId = plantId;
     if (deviceId) query.deviceId = deviceId;
-
-    const fromDate = parseDateQuery("from", from);
-    const toDate = parseDateQuery("to", to);
-    if (fromDate && toDate && fromDate > toDate) {
-      const err = new Error("from must be before to");
-      err.statusCode = 400;
-      throw err;
-    }
-    if (fromDate || toDate) {
-      query.createdAt = {};
-      if (fromDate) query.createdAt.$gte = fromDate;
-      if (toDate) query.createdAt.$lte = toDate;
-    }
 
     const alerts = await Alert.find(query)
       .populate('plantId', 'name')
       .populate('deviceId', 'deviceId')
       .populate('inventoryItemId', 'name')
       .sort({ createdAt: -1 });
+
+    // Sort CRITICAL first, then WARN, then INFO, preserving time order within each group
+    alerts.sort((a, b) => {
+      const sd = (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9);
+      if (sd !== 0) return sd;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
 
     res.json({ alerts });
   } catch (err) {

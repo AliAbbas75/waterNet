@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Search, Shield, ShieldCheck, ShieldOff, Users } from "lucide-react";
+import { History, Plus, Search, Shield, ShieldCheck, ShieldOff, Users } from "lucide-react";
 import { PageHeader } from "../../components/ui/PageHeader.jsx";
 import { Card } from "../../components/ui/Card.jsx";
 import { Input, Select, Field } from "../../components/ui/Input.jsx";
@@ -10,7 +10,14 @@ import { Button } from "../../components/ui/Button.jsx";
 import { Modal } from "../../components/ui/Modal.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
-import { useToggleUserActive, useUpdateUserRole, useUsers } from "../../hooks/useUsers.js";
+import {
+  useAuditLogs,
+  useCreateInvite,
+  useRegisterUser,
+  useToggleUserActive,
+  useUpdateUserRole,
+  useUsers
+} from "../../hooks/useUsers.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { relTime, shortAddr } from "../../lib/format.js";
 
@@ -30,8 +37,18 @@ export default function UsersPage() {
   const users = useUsers(filters);
   const [editing, setEditing] = useState(null);
   const [confirmActive, setConfirmActive] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [registerError, setRegisterError] = useState("");
+  const [registerSuccess, setRegisterSuccess] = useState("");
+  const [inviteError, setInviteError] = useState("");
+  const [inviteSuccess, setInviteSuccess] = useState("");
+  const [showAudit, setShowAudit] = useState(false);
   const updateRole = useUpdateUserRole();
   const toggleActive = useToggleUserActive();
+  const registerUser = useRegisterUser();
+  const createInvite = useCreateInvite();
+  const auditLogs = useAuditLogs({ limit: 50 });
 
   const isSuper = me?.role === "SUPER_ADMIN";
 
@@ -117,7 +134,25 @@ export default function UsersPage() {
       <PageHeader
         title="Users"
         description={isSuper ? "Manage roles, grant SUPER_ADMIN, disable accounts." : "Manage roles and account access."}
-        action={<Shield size={20} className="text-slate-400" />}
+        action={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              leftIcon={<History size={14} />}
+              onClick={() => setShowAudit(true)}
+            >
+              Audit log
+            </Button>
+            <Button size="sm" variant="secondary" leftIcon={<ShieldCheck size={14} />} onClick={() => setInviting(true)}>
+              Invite user
+            </Button>
+            <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => setCreating(true)}>
+              Register user
+            </Button>
+            <Shield size={20} className="text-slate-400" />
+          </>
+        }
       />
 
       <Card className="mb-4">
@@ -175,6 +210,57 @@ export default function UsersPage() {
           setConfirmActive(null);
         }}
         loading={toggleActive.isPending}
+      />
+      <RegisterUserModal
+        open={creating}
+        onClose={() => {
+          setCreating(false);
+          setRegisterError("");
+          setRegisterSuccess("");
+        }}
+        onConfirm={async (payload) => {
+          setRegisterError("");
+          setRegisterSuccess("");
+          try {
+            const res = await registerUser.mutateAsync(payload);
+            const wallet = res?.walletAddress ? ` Wallet: ${res.walletAddress}` : "";
+            setRegisterSuccess(`User registered.${wallet}`);
+          } catch (err) {
+            setRegisterError(err.message || "Failed to register user");
+          }
+        }}
+        loading={registerUser.isPending}
+        errorMsg={registerError}
+        successMsg={registerSuccess}
+      />
+      <InviteUserModal
+        open={inviting}
+        isSuper={isSuper}
+        onClose={() => {
+          setInviting(false);
+          setInviteError("");
+          setInviteSuccess("");
+        }}
+        onConfirm={async (payload) => {
+          setInviteError("");
+          setInviteSuccess("");
+          try {
+            const res = await createInvite.mutateAsync(payload);
+            const link = res?.link ? ` Invite link: ${res.link}` : "";
+            setInviteSuccess(`Invite created.${link}`);
+          } catch (err) {
+            setInviteError(err.message || "Failed to create invite");
+          }
+        }}
+        loading={createInvite.isPending}
+        errorMsg={inviteError}
+        successMsg={inviteSuccess}
+      />
+      <AuditLogModal
+        open={showAudit}
+        onClose={() => setShowAudit(false)}
+        logs={auditLogs.data || []}
+        loading={auditLogs.isLoading}
       />
     </>
   );
@@ -239,6 +325,196 @@ function ActiveModal({ open, user, onClose, onConfirm, loading }) {
           ? "Disabled accounts cannot sign in. Their data and history are preserved."
           : "Re-enable so this account can sign in again."}
       </p>
+    </Modal>
+  );
+}
+
+function RegisterUserModal({ open, onClose, onConfirm, loading, errorMsg, successMsg }) {
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [role, setRole] = useState("PUBLIC");
+
+  useMemo(() => {
+    if (open) {
+      setEmail("");
+      setDisplayName("");
+      setRole("PUBLIC");
+    }
+  }, [open]);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Register user"
+      subtitle="Creates a custodial wallet and registers the user on-chain"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => onConfirm({ email, displayName: displayName || undefined, role })}
+            loading={loading}
+            disabled={!email}
+          >
+            Create user
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Field label="Email" required>
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="user@waternet.local"
+          />
+        </Field>
+        <Field label="Display name">
+          <Input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Optional name"
+          />
+        </Field>
+        <Field label="Role">
+          <Select value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="PUBLIC">Public — citizens / society residents</option>
+            <option value="MAINTAINER">Maintainer — field technicians</option>
+            <option value="ADMIN">Admin — operations team</option>
+          </Select>
+        </Field>
+        <p className="text-xs text-slate-500">
+          The wallet is custodial and stored securely on the server. User access is granted via OTP.
+        </p>
+        {successMsg ? (
+          <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+            {successMsg}
+          </p>
+        ) : null}
+        {errorMsg ? (
+          <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            {errorMsg}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+function InviteUserModal({ open, isSuper, onClose, onConfirm, loading, errorMsg, successMsg }) {
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("MAINTAINER");
+
+  useMemo(() => {
+    if (open) {
+      setEmail("");
+      setRole("MAINTAINER");
+    }
+  }, [open]);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Invite user"
+      subtitle="Send a role upgrade invitation to an existing public user"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => onConfirm({ email, role })}
+            loading={loading}
+            disabled={!email}
+          >
+            Send invite
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Field label="Email" required>
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="user@waternet.local"
+          />
+        </Field>
+        <Field label="Role">
+          <Select value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="MAINTAINER">Maintainer — field technicians</option>
+            {isSuper ? <option value="ADMIN">Admin — operations team</option> : null}
+          </Select>
+        </Field>
+        <p className="text-xs text-slate-500">
+          The invite is valid for 48 hours and can be accepted only by the invited email.
+        </p>
+        {successMsg ? (
+          <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+            {successMsg}
+          </p>
+        ) : null}
+        {errorMsg ? (
+          <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            {errorMsg}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+function AuditLogModal({ open, onClose, logs, loading }) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Audit log"
+      subtitle="Recent admin and auth events"
+      size="lg"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </>
+      }
+    >
+      {loading ? (
+        <div className="py-6 grid place-items-center">
+          <Spinner label="Loading audit logs…" />
+        </div>
+      ) : logs.length ? (
+        <div className="space-y-2">
+          {logs.map((log) => (
+            <Card key={log._id} className="p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-900 truncate">{log.event}</p>
+                  <p className="text-xs text-slate-500">
+                    {new Date(log.createdAt).toLocaleString()}
+                  </p>
+                </div>
+                {log.meta?.role ? (
+                  <Badge variant={ROLE_VARIANT[log.meta.role] || "neutral"}>{log.meta.role}</Badge>
+                ) : null}
+              </div>
+              {log.meta ? (
+                <pre className="mt-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-md p-2 overflow-x-auto">
+{JSON.stringify(log.meta, null, 2)}
+                </pre>
+              ) : null}
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <EmptyState icon={Users} title="No audit events yet" />
+      )}
     </Modal>
   );
 }

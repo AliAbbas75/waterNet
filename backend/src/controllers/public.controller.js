@@ -1,8 +1,10 @@
+const { ethers } = require("ethers");
 const Plant = require("../models/Plant");
 const Device = require("../models/Device");
 const WaterQualityState = require("../models/WaterQualityState");
 const TelemetryReading = require("../models/TelemetryReading");
 const PublicIssueReport = require("../models/PublicIssueReport");
+const { getRoleFromChain, isActiveOnChain, isBlockchainEnabled } = require("../config/blockchain");
 
 function haversineKm(a, b) {
   const toRad = (x) => (x * Math.PI) / 180;
@@ -151,6 +153,32 @@ exports.adminUpdateReport = async (req, res, next) => {
       .populate("submittedByUserId", "display_name email");
     if (!report) return res.status(404).json({ error: "Report not found" });
     res.json({ report });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.chainProof = async (req, res, next) => {
+  try {
+    if (!isBlockchainEnabled()) {
+      return res.status(404).json({ ok: false, error: "Blockchain auth is disabled" });
+    }
+
+    const address = String(req.query.address || "").trim();
+    if (!ethers.isAddress(address)) {
+      return res.status(400).json({ ok: false, error: "Invalid address" });
+    }
+
+    const role = await getRoleFromChain(address);
+    const active = await isActiveOnChain(address);
+
+    res.json({
+      ok: true,
+      address: address.toLowerCase(),
+      role,
+      active,
+      contractAddress: process.env.CHAIN_USER_REGISTRY_ADDRESS || null
+    });
   } catch (err) {
     next(err);
   }

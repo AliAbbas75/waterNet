@@ -24,8 +24,8 @@ import { fmtDate, fmtNum, relTime } from "../../lib/format.js";
 const PARAMS = [
   { key: "pH", label: "pH", unit: "" },
   { key: "turbidity", label: "Turbidity", unit: "NTU" },
-  { key: "temperature", label: "Temperature", unit: "°C" },
-  { key: "TDS", label: "TDS", unit: "ppm" }
+  { key: "TDS", label: "TDS", unit: "ppm" },
+  { key: "flowRate", label: "Flow rate", unit: "L/min" }
 ];
 
 export default function DeviceDetailPage() {

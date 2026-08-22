@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Droplet, FileText, LogOut, MapPin, MessageSquarePlus } from "lucide-react";
+import { Droplet, FileText, LogOut, MapPin, MessageSquarePlus, ShieldCheck } from "lucide-react";
 import clsx from "clsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { Avatar } from "../ui/Avatar.jsx";
@@ -7,7 +7,8 @@ import { Avatar } from "../ui/Avatar.jsx";
 const TABS = [
   { to: "/app", label: "Nearby", icon: MapPin, end: true },
   { to: "/app/report", label: "Report", icon: MessageSquarePlus },
-  { to: "/app/my-reports", label: "My reports", icon: FileText }
+  { to: "/app/my-reports", label: "My reports", icon: FileText },
+  { to: "/proof", label: "Verify", icon: ShieldCheck }
 ];
 
 export function PublicLayout() {
@@ -57,7 +58,7 @@ export function PublicLayout() {
       </main>
 
       <nav className="fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 sm:hidden">
-        <div className="max-w-screen-sm mx-auto grid grid-cols-3">
+        <div className="max-w-screen-sm mx-auto grid grid-cols-4">
           {TABS.map((t) => (
             <NavLink
               key={t.to}
@@ -78,7 +79,7 @@ export function PublicLayout() {
       </nav>
 
       <nav className="hidden sm:flex border-t border-slate-200 bg-white">
-        <div className="max-w-screen-md mx-auto w-full grid grid-cols-3">
+        <div className="max-w-3xl mx-auto w-full grid grid-cols-4">
           {TABS.map((t) => (
             <NavLink
               key={t.to}

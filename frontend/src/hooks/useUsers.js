@@ -24,11 +24,32 @@ export function useToggleUserActive() {
   });
 }
 
+export function useRegisterUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload) => api.post("/api/admin/register-user", payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] })
+  });
+}
+
+export function useCreateInvite() {
+  return useMutation({
+    mutationFn: (payload) => api.post("/api/admin/invites", payload)
+  });
+}
+
 export function useDevUsers(enabled = true) {
   return useQuery({
     enabled,
     queryKey: ["dev-users"],
     queryFn: () => api.get("/api/auth/dev-users", { auth: false }).then((r) => r.users),
     staleTime: 60_000
+  });
+}
+
+export function useAuditLogs(params = {}) {
+  return useQuery({
+    queryKey: ["audit-logs", params],
+    queryFn: () => api.get("/api/admin/audit-logs", { params }).then((r) => r.logs)
   });
 }

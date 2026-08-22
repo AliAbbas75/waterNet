@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { clearBackendToken, getBackendToken, setBackendToken } from "../lib/tokenStore.js";
 
@@ -7,19 +7,24 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [status, setStatus] = useState(getBackendToken() ? "loading" : "anonymous");
+  const refreshSeq = useRef(0);
 
   const refresh = useCallback(async () => {
-    if (!getBackendToken()) {
+    const seq = ++refreshSeq.current;
+    const tokenAtStart = getBackendToken();
+    if (!tokenAtStart) {
       setUser(null);
       setStatus("anonymous");
       return null;
     }
     try {
       const data = await api.get("/api/auth/me");
+      if (seq !== refreshSeq.current || tokenAtStart !== getBackendToken()) return null;
       setUser(data.user);
       setStatus("authenticated");
       return data.user;
     } catch {
+      if (seq !== refreshSeq.current || tokenAtStart !== getBackendToken()) return null;
       clearBackendToken();
       setUser(null);
       setStatus("anonymous");
@@ -31,20 +36,33 @@ export function AuthProvider({ children }) {
     refresh();
   }, [refresh]);
 
-  const devLogin = useCallback(async ({ email, walletAddress }) => {
-    const data = await api.post("/api/auth/dev-login", { email, walletAddress }, { auth: false });
-    if (data?.token) setBackendToken(data.token);
-    setUser(data.user);
-    setStatus("authenticated");
-    return data.user;
+  const register = useCallback(async (email, displayName) => {
+    await api.post(
+      "/api/auth/register",
+      { email, ...(displayName ? { displayName } : {}) },
+      { auth: false }
+    );
   }, []);
 
-  const thirdwebLogin = useCallback(async ({ token, walletAddress, clientId }) => {
-    const headers = clientId ? { "x-client-id": clientId } : {};
+  const sendOtp = useCallback(async (email) => {
+    await api.post("/api/auth/send-otp", { email }, { auth: false });
+  }, []);
+
+  const blockchainLogin = useCallback(async ({ email, code }) => {
+    refreshSeq.current += 1;
+    const preAuth = await api.post("/api/auth/verify-otp", { email, code }, { auth: false });
+    const preAuthToken = preAuth?.preAuthToken;
+    if (!preAuthToken) throw new Error("Missing pre-auth token");
+
+    const challenge = await api.get("/api/auth/challenge", {
+      auth: false,
+      headers: { Authorization: `Bearer ${preAuthToken}` }
+    });
+
     const data = await api.post(
-      "/api/auth/login",
-      { token, walletAddress },
-      { auth: false, headers }
+      "/api/auth/verify-challenge",
+      { challengeId: challenge?.challengeId },
+      { auth: false }
     );
     if (data?.token) setBackendToken(data.token);
     setUser(data.user);
@@ -53,6 +71,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = useCallback(async () => {
+    refreshSeq.current += 1;
     try {
       await api.post("/api/auth/logout", undefined);
     } catch {
@@ -64,8 +83,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, status, refresh, devLogin, thirdwebLogin, logout }),
-    [user, status, refresh, devLogin, thirdwebLogin, logout]
+    () => ({ user, status, refresh, register, sendOtp, blockchainLogin, logout }),
+    [user, status, refresh, register, sendOtp, blockchainLogin, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

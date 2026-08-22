@@ -27,8 +27,9 @@ const telemetryReadingSchema = new mongoose.Schema(
     readings: {
       pH: { type: Number, default: null },
       turbidity: { type: Number, default: null },
-      temperature: { type: Number, default: null },
-      TDS: { type: Number, default: null }
+      TDS: { type: Number, default: null },
+      flowRate: { type: Number, default: null },
+      totalLitres: { type: Number, default: null }
     },
     health: {
       uptime: { type: Number, default: null }, // seconds

@@ -72,3 +72,24 @@ export function statusVariant(status) {
       return "neutral";
   }
 }
+
+/**
+ * Plant operationalStatus has its own mapping because CLOSED collides with the
+ * issue-report lifecycle, where CLOSED means resolved and renders green. A
+ * closed plant is unavailable to the public, so it must not read as healthy.
+ */
+export function plantStatusVariant(status) {
+  switch (String(status || "").toUpperCase()) {
+    case "OPERATIONAL":
+      return "safe";
+    case "MAINTENANCE":
+      return "warn";
+    case "CLOSED":
+    // Legacy value from before the OFFLINE -> CLOSED rename. Kept so a database
+    // that has not run the migration yet still renders red rather than grey.
+    case "OFFLINE":
+      return "unsafe";
+    default:
+      return "neutral";
+  }
+}

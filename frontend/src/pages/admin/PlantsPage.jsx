@@ -6,7 +6,8 @@ import { Button } from "../../components/ui/Button.jsx";
 import { Card } from "../../components/ui/Card.jsx";
 import { Input, Select, Field, Textarea } from "../../components/ui/Input.jsx";
 import { DataTable } from "../../components/ui/DataTable.jsx";
-import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
+import { Badge, statusVariant, plantStatusVariant } from "../../components/ui/Badge.jsx";
+import { ConsumptionBadge } from "../../components/plants/ConsumptionCard.jsx";
 import { Modal } from "../../components/ui/Modal.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
@@ -45,10 +46,16 @@ export default function PlantsPage() {
         key: "status",
         header: "Status",
         render: (p) => (
-          <Badge variant={statusVariant(p.operationalStatus)} dot>
+          <Badge variant={plantStatusVariant(p.operationalStatus)} dot>
             {p.operationalStatus}
           </Badge>
         )
+      },
+      {
+        key: "water",
+        header: "Water today",
+        mobileLabel: "Water today",
+        render: (p) => <ConsumptionBadge consumption={p.consumption} />
       },
       {
         key: "hours",
@@ -118,7 +125,7 @@ export default function PlantsPage() {
             <option value="">All statuses</option>
             <option value="OPERATIONAL">Operational</option>
             <option value="MAINTENANCE">Maintenance</option>
-            <option value="OFFLINE">Offline</option>
+            <option value="CLOSED">Closed</option>
           </Select>
         </div>
       </Card>
@@ -178,10 +185,15 @@ function PlantFormModal({ open, plant, onClose }) {
       address: form.address.trim(),
       geo: { lat: Number(form.lat), lng: Number(form.lng) },
       operationalStatus: form.operationalStatus,
-      operatingHours: form.operatingHours.trim() || null
+      operatingHours: form.operatingHours.trim() || null,
+      tankCapacityLitres: Number(form.tankCapacityLitres)
     };
     if (!body.name || !body.address || !Number.isFinite(body.geo.lat) || !Number.isFinite(body.geo.lng)) {
       setError("Name, address, and geo coordinates are required.");
+      return;
+    }
+    if (!Number.isFinite(body.tankCapacityLitres) || body.tankCapacityLitres <= 0) {
+      setError("Tank capacity must be a positive number of litres.");
       return;
     }
     try {
@@ -254,7 +266,7 @@ function PlantFormModal({ open, plant, onClose }) {
             >
               <option value="OPERATIONAL">Operational</option>
               <option value="MAINTENANCE">Maintenance</option>
-              <option value="OFFLINE">Offline</option>
+              <option value="CLOSED">Closed</option>
             </Select>
           </Field>
           <Field label="Operating hours" hint="(e.g. 06:00-22:00)">
@@ -265,6 +277,16 @@ function PlantFormModal({ open, plant, onClose }) {
             />
           </Field>
         </div>
+        <Field label="Tank capacity" hint="(litres — daily consumption draws down against this)">
+          <Input
+            type="number"
+            min="1"
+            step="any"
+            value={form.tankCapacityLitres}
+            onChange={(e) => setForm({ ...form, tankCapacityLitres: e.target.value })}
+            placeholder="1000"
+          />
+        </Field>
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
       </form>
     </Modal>
@@ -278,7 +300,8 @@ function initForm(plant) {
     lat: plant?.geo?.lat ?? "",
     lng: plant?.geo?.lng ?? "",
     operationalStatus: plant?.operationalStatus || "OPERATIONAL",
-    operatingHours: plant?.operatingHours || ""
+    operatingHours: plant?.operatingHours || "",
+    tankCapacityLitres: plant?.tankCapacityLitres ?? 1000
   };
 }
 

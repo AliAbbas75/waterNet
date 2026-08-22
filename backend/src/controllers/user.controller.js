@@ -1,4 +1,6 @@
 const User = require("../models/User");
+const { logAudit } = require("../services/audit.service");
+const { isBlockchainEnabled, setRoleOnChain, setActiveOnChain } = require("../config/blockchain");
 
 const ALLOWED_ROLES = ["SUPER_ADMIN", "ADMIN", "MAINTAINER", "PUBLIC"];
 
@@ -44,6 +46,16 @@ exports.updateRole = async (req, res, next) => {
       { new: true, runValidators: true }
     );
     if (!user) return res.status(404).json({ error: "User not found" });
+    if (isBlockchainEnabled()) {
+      await setRoleOnChain(user.wallet_address, role);
+    }
+    await logAudit({
+      event: "admin.user.role_updated",
+      req,
+      actorUserId: req.user?._id || null,
+      targetUserId: user._id,
+      meta: { role, wallet: user.wallet_address }
+    });
     res.json({ user });
   } catch (err) {
     next(err);
@@ -65,6 +77,16 @@ exports.toggleActive = async (req, res, next) => {
       { new: true, runValidators: true }
     );
     if (!user) return res.status(404).json({ error: "User not found" });
+    if (isBlockchainEnabled()) {
+      await setActiveOnChain(user.wallet_address, active);
+    }
+    await logAudit({
+      event: "admin.user.active_updated",
+      req,
+      actorUserId: req.user?._id || null,
+      targetUserId: user._id,
+      meta: { active, wallet: user.wallet_address }
+    });
     res.json({ user });
   } catch (err) {
     next(err);

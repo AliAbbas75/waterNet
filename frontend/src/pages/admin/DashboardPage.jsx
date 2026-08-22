@@ -12,7 +12,7 @@ import {
 import { PageHeader } from "../../components/ui/PageHeader.jsx";
 import { Stat } from "../../components/ui/Stat.jsx";
 import { Card, CardHeader } from "../../components/ui/Card.jsx";
-import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
+import { Badge, statusVariant, plantStatusVariant } from "../../components/ui/Badge.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { useOverview } from "../../hooks/useReports.js";
@@ -141,6 +141,8 @@ export default function DashboardPage() {
   );
 }
 
+const SEVERITY_ORDER = { CRITICAL: 0, WARN: 1, INFO: 2 };
+
 function AlertList({ alerts, loading }) {
   if (loading) {
     return (
@@ -160,9 +162,13 @@ function AlertList({ alerts, loading }) {
       </div>
     );
   }
+  const sorted = [...alerts].sort((a, b) => {
+    const sd = (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9);
+    return sd !== 0 ? sd : new Date(b.createdAt) - new Date(a.createdAt);
+  });
   return (
     <ul className="divide-y divide-slate-100 max-h-[320px] overflow-y-auto">
-      {alerts.slice(0, 8).map((a) => (
+      {sorted.slice(0, 8).map((a) => (
         <li key={a._id} className="px-5 py-3 flex items-start gap-3">
           <div
             className={
@@ -230,7 +236,7 @@ function PlantStatusBreakdown({ plants, loading }) {
       acc[p.operationalStatus] = (acc[p.operationalStatus] || 0) + 1;
       return acc;
     },
-    { OPERATIONAL: 0, MAINTENANCE: 0, OFFLINE: 0 }
+    { OPERATIONAL: 0, MAINTENANCE: 0, CLOSED: 0 }
   );
   const total = plants.length;
   return (
@@ -241,7 +247,7 @@ function PlantStatusBreakdown({ plants, loading }) {
           <div key={status}>
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
-                <Badge variant={statusVariant(status)} dot>
+                <Badge variant={plantStatusVariant(status)} dot>
                   {status}
                 </Badge>
               </div>

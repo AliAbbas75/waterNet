@@ -1,0 +1,1 @@
+﻿{"blockchain":{"nodes":{"generate":true,"count":1}},"genesis":{"config":{"chainId":1337,"qbft":{"blockperiodseconds":2,"epochlength":30000}}}}

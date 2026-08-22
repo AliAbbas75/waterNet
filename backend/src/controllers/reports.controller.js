@@ -5,28 +5,13 @@ const Plant = require("../models/Plant");
 const WaterQualityState = require("../models/WaterQualityState");
 const Alert = require("../models/Alert");
 
-const PARAM_KEYS = ["pH", "turbidity", "temperature", "TDS"];
-
-function parseDateParam(name, value) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    const err = new Error(`${name} must be a valid date (ISO 8601 recommended)`);
-    err.statusCode = 400;
-    throw err;
-  }
-  return date;
-}
+const PARAM_KEYS = ["pH", "turbidity", "TDS", "flowRate"];
 
 function parseRange(req) {
-  const to = parseDateParam("to", req.query.to) || new Date();
-  const from =
-    parseDateParam("from", req.query.from) || new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000);
-  if (from > to) {
-    const err = new Error("from must be before to");
-    err.statusCode = 400;
-    throw err;
-  }
+  const to = req.query.to ? new Date(req.query.to) : new Date();
+  const from = req.query.from
+    ? new Date(req.query.from)
+    : new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000);
   return { from, to };
 }
 
@@ -38,11 +23,6 @@ exports.qualityTrends = async (req, res, next) => {
     const match = { timestamp: { $gte: from, $lte: to }, readings: { $exists: true, $ne: null } };
     if (req.query.plantId) {
       const mongoose = require("mongoose");
-      if (!mongoose.Types.ObjectId.isValid(req.query.plantId)) {
-        const err = new Error("plantId must be a valid ObjectId");
-        err.statusCode = 400;
-        throw err;
-      }
       match.plantId = new mongoose.Types.ObjectId(req.query.plantId);
     }
     const groupKey =
@@ -66,8 +46,8 @@ exports.qualityTrends = async (req, res, next) => {
           ts: { $min: "$timestamp" },
           pH: { $avg: "$readings.pH" },
           turbidity: { $avg: "$readings.turbidity" },
-          temperature: { $avg: "$readings.temperature" },
           TDS: { $avg: "$readings.TDS" },
+          flowRate: { $avg: "$readings.flowRate" },
           count: { $sum: 1 }
         }
       },
@@ -159,6 +139,72 @@ exports.uptime = async (req, res, next) => {
     }
     const avg = out.length ? out.reduce((s, x) => s + x.uptimePct, 0) / out.length : 0;
     res.json({ from, to, expectedReadings: expected, averageUptimePct: Math.round(avg * 10) / 10, devices: out });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /api/reports/export?type=quality|maintenance|uptime&from=&to=&bucket=
+exports.exportCsv = async (req, res, next) => {
+  try {
+    const { type, bucket } = req.query;
+    const { from, to } = parseRange(req);
+
+    let rows = [];
+    let filename = `waternet-${type}-${from.toISOString().slice(0, 10)}.csv`;
+
+    if (type === "quality") {
+      const match = { timestamp: { $gte: from, $lte: to }, readings: { $exists: true, $ne: null } };
+      if (req.query.plantId) {
+        const mongoose = require("mongoose");
+        match.plantId = new mongoose.Types.ObjectId(req.query.plantId);
+      }
+      const b = bucket === "hour" ? "hour" : "day";
+      const groupKey =
+        b === "hour"
+          ? { y: { $year: "$timestamp" }, m: { $month: "$timestamp" }, d: { $dayOfMonth: "$timestamp" }, h: { $hour: "$timestamp" } }
+          : { y: { $year: "$timestamp" }, m: { $month: "$timestamp" }, d: { $dayOfMonth: "$timestamp" } };
+      const agg = await TelemetryReading.aggregate([
+        { $match: match },
+        { $group: { _id: groupKey, ts: { $min: "$timestamp" }, pH: { $avg: "$readings.pH" }, turbidity: { $avg: "$readings.turbidity" }, TDS: { $avg: "$readings.TDS" }, flowRate: { $avg: "$readings.flowRate" }, count: { $sum: 1 } } },
+        { $sort: { ts: 1 } }
+      ]);
+      rows = [["timestamp", "pH", "turbidity", "TDS", "flowRate", "count"]];
+      for (const p of agg) {
+        rows.push([p.ts?.toISOString() ?? "", p.pH?.toFixed(3) ?? "", p.turbidity?.toFixed(3) ?? "", p.TDS?.toFixed(3) ?? "", p.flowRate?.toFixed(3) ?? "", p.count]);
+      }
+    } else if (type === "maintenance") {
+      const tasks = await MaintenanceTask.find({ createdAt: { $gte: from, $lte: to } })
+        .populate("assignedToUserId", "display_name email");
+      rows = [["taskId", "title", "status", "assignedTo", "createdAt", "resolvedAt", "resolutionMinutes"]];
+      for (const t of tasks) {
+        const mins = t.status === "RESOLVED" && t.resolvedAt
+          ? Math.round((new Date(t.resolvedAt) - new Date(t.assignedAt)) / 60000)
+          : "";
+        const name = t.assignedToUserId ? (t.assignedToUserId.display_name || t.assignedToUserId.email) : "";
+        rows.push([t._id, t.title, t.status, name, t.createdAt?.toISOString() ?? "", t.resolvedAt?.toISOString() ?? "", mins]);
+      }
+    } else if (type === "uptime") {
+      const devices = await Device.find({ disabled: false }).populate("plantId", "name");
+      const expected = Math.max(1, Math.floor((to - from) / (15 * 60 * 1000)));
+      rows = [["deviceId", "plant", "status", "availability", "observed", "expected", "uptimePct"]];
+      for (const d of devices) {
+        const count = await TelemetryReading.countDocuments({
+          $or: [{ deviceRef: d._id }, { deviceId: d.deviceId }],
+          timestamp: { $gte: from, $lte: to },
+          readings: { $exists: true, $ne: null }
+        });
+        const pct = Math.min(100, Math.round((count / expected) * 1000) / 10);
+        rows.push([d.deviceId, d.plantId?.name ?? "", d.status, d.availability, count, expected, pct]);
+      }
+    } else {
+      return res.status(400).json({ error: "type must be quality, maintenance, or uptime" });
+    }
+
+    const csv = rows.map((r) => r.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(csv);
   } catch (err) {
     next(err);
   }

@@ -21,8 +21,8 @@ import { fmtNum } from "../../lib/format.js";
 const PARAMS = [
   { key: "pH", label: "pH" },
   { key: "turbidity", label: "Turbidity (NTU)" },
-  { key: "temperature", label: "Temperature (°C)" },
-  { key: "TDS", label: "TDS (ppm)" }
+  { key: "TDS", label: "TDS (ppm)" },
+  { key: "flowRate", label: "Flow rate (L/min)" }
 ];
 
 export default function ThresholdsPage() {
