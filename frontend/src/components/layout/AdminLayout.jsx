@@ -11,6 +11,7 @@ import {
   Wrench
 } from "lucide-react";
 import { AppShell } from "./AppShell.jsx";
+import { useAuth } from "../../contexts/AuthContext.jsx";
 
 const NAV = [
   { to: "/admin", label: "Overview", icon: LayoutDashboard, end: true },
@@ -21,10 +22,16 @@ const NAV = [
   { to: "/admin/alerts", label: "Alerts", icon: AlertTriangle },
   { to: "/admin/thresholds", label: "Thresholds", icon: SlidersHorizontal },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
-  { to: "/admin/issue-reports", label: "Citizen Reports", icon: MessagesSquare },
-  { to: "/admin/users", label: "Users", icon: Users }
+  { to: "/admin/issue-reports", label: "Citizen Reports", icon: MessagesSquare }
 ];
 
+// Account administration is SUPER_ADMIN only. An ADMIN runs operations —
+// plants, devices, task assignment, citizen reports — but cannot grant roles
+// or invite users, which would let them escalate their own privileges.
+const SUPER_ADMIN_NAV = [{ to: "/admin/users", label: "Users", icon: Users }];
+
 export function AdminLayout() {
-  return <AppShell title="Admin console" navItems={NAV} />;
+  const { user } = useAuth();
+  const navItems = user?.role === "SUPER_ADMIN" ? [...NAV, ...SUPER_ADMIN_NAV] : NAV;
+  return <AppShell title="Admin console" navItems={navItems} />;
 }

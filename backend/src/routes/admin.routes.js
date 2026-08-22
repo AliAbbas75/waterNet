@@ -31,10 +31,13 @@ const inviteSchema = z.object({
   role: z.enum(["MAINTAINER", "ADMIN"])
 });
 
+// Creating accounts and issuing role-bearing invites is SUPER_ADMIN only —
+// the invite schema accepts role: "ADMIN", so an ADMIN with this endpoint
+// could mint further admins at will.
 router.post(
   "/register-user",
   protect,
-  requireRole("ADMIN", "SUPER_ADMIN"),
+  requireRole("SUPER_ADMIN"),
   validateBody(registerUserSchema),
   adminController.registerUser
 );
@@ -42,7 +45,7 @@ router.post(
 router.post(
   "/invites",
   protect,
-  requireRole("ADMIN", "SUPER_ADMIN"),
+  requireRole("SUPER_ADMIN"),
   rateLimit({ windowMs: 10 * 60 * 1000, max: 10, keyPrefix: "admin-invite" }),
   validateBody(inviteSchema),
   adminController.createInvite

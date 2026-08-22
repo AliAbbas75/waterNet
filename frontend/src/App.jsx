@@ -62,7 +62,16 @@ export default function App() {
         <Route path="thresholds" element={<AdminThresholds />} />
         <Route path="reports" element={<AdminReports />} />
         <Route path="issue-reports" element={<AdminIssueReports />} />
-        <Route path="users" element={<AdminUsers />} />
+        {/* Account administration is SUPER_ADMIN only — hiding the nav item is
+            not enough, the route itself must refuse a hand-typed URL. */}
+        <Route
+          path="users"
+          element={
+            <RequireRole role="SUPER_ADMIN">
+              <AdminUsers />
+            </RequireRole>
+          }
+        />
       </Route>
 
       <Route

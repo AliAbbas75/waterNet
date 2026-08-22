@@ -54,3 +54,11 @@ mobile/ios/
 
 .claude/
 __MACOSX/
+# Besu node runtime state. RocksDB is a live database, not a build artifact:
+# committing it produces snapshots that are corrupt on restore, and a stray
+# `git clean`/`git restore` over these paths destroys a working chain.
+# `data/key` is deliberately NOT ignored — it is the QBFT validator identity
+# hard-coded into genesis.json's extraData; lose it and the node stops
+# producing blocks.
+infra/besu-network/data/*
+!infra/besu-network/data/key

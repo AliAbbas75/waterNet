@@ -4,11 +4,15 @@ const { listUsers, getUser, updateRole, toggleActive } = require("../controllers
 
 const router = express.Router();
 
-router.use(requireRole("ADMIN"));
+// Reading the directory is an operational need, not user management: an ADMIN
+// has to list maintainers to assign a task to one.
+router.get("/", requireRole("ADMIN"), listUsers);
+router.get("/:id", requireRole("ADMIN"), getUser);
 
-router.get("/", listUsers);
-router.get("/:id", getUser);
-router.patch("/:id/role", updateRole);
-router.patch("/:id/active", toggleActive);
+// Mutating roles or account state is privilege management and is SUPER_ADMIN
+// only — an ADMIN able to call these could promote itself to SUPER_ADMIN.
+// requireRole is hierarchical, so this admits SUPER_ADMIN and nothing below.
+router.patch("/:id/role", requireRole("SUPER_ADMIN"), updateRole);
+router.patch("/:id/active", requireRole("SUPER_ADMIN"), toggleActive);
 
 module.exports = router;
