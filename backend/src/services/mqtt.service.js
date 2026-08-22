@@ -5,6 +5,12 @@ const TelemetryReading = require("../models/TelemetryReading");
 const Device = require("../models/Device");
 const { evaluateQuality } = require("../controllers/analysis.controller");
 const { raiseAlert, clearAlerts } = require("./alert.service");
+const {
+  offlineCandidateQuery,
+  recordFlip,
+  shouldSuppressOfflineAlert,
+  clearFlappingIfStable
+} = require("./deviceHealth.service");
 const { emit: socketEmit } = require("./socket.service");
 
 let client = null;
@@ -161,17 +167,30 @@ function connectMqtt() {
   if (process.env.DISABLE_MQTT === "true") return connectPromise;
   cron.schedule("* * * * *", async () => {
     try {
-      const gracePeriod = 6 * 60 * 1000; // 6 minutes
-      const cutoff = new Date(Date.now() - gracePeriod);
-
-      const devicesToOffline = await Device.find({
-        lastSeenAt: { $lt: cutoff },
-        availability: "AVAILABLE",
-        disabled: false
-      });
+      // Each device's grace period comes from its own reporting cadence; see
+      // deviceHealth.service. A flat threshold cannot serve a fleet spanning a
+      // 3-second ESP32 and 30-minute sensors.
+      const devicesToOffline = await Device.find(offlineCandidateQuery(new Date()));
 
       for (const device of devicesToOffline) {
-        await setAvailability(device, "UNAVAILABLE");
+        const { flipped, flapping } = await setAvailability(device, "UNAVAILABLE");
+        if (!flipped) continue;
+
+        // A device that keeps cycling is faulty, not merely down. It gets one
+        // DEVICE_FLAPPING ticket instead of an offline alert per cycle.
+        if (flapping) {
+          await raiseAlert({
+            type: "DEVICE_FLAPPING",
+            plantId: device.plantId,
+            deviceId: device._id,
+            message: `Device ${device.deviceId} is flapping between online and offline`,
+            meta: { detectedBy: "availability-sweep" },
+            context: { deviceName: device.deviceId }
+          });
+          continue;
+        }
+
+        if (shouldSuppressOfflineAlert(device)) continue;
 
         await raiseAlert({
           type: "DEVICE_OFFLINE",
@@ -197,7 +216,9 @@ function connectMqtt() {
 // minute for no state change.
 async function setAvailability(device, availability, extra = {}) {
   const previous = await Device.findByIdAndUpdate(device._id, { availability, ...extra });
-  if (!previous || previous.availability === availability) return false;
+  if (!previous || previous.availability === availability) {
+    return { flipped: false, flapping: false };
+  }
 
   socketEmit("device:availability", {
     deviceRef: device._id.toString(),
@@ -206,7 +227,24 @@ async function setAvailability(device, availability, extra = {}) {
     availability,
     lastSeenAt: extra.lastSeenAt ?? previous.lastSeenAt ?? null
   });
-  return true;
+
+  // Both directions count. A flapping device cycles offline->online->offline,
+  // so recording only the drops would see half the instability and take twice
+  // as long to flag genuinely broken hardware.
+  const { flapping } = await recordFlip({ ...device.toObject?.() ?? device, status: previous.status });
+
+  // Coming back up steadily is what clears the faulty flag.
+  if (availability === "AVAILABLE") {
+    await clearFlappingIfStable({
+      _id: device._id,
+      deviceId: device.deviceId,
+      status: previous.status,
+      flappingSince: previous.flappingSince,
+      availabilityFlips: previous.availabilityFlips
+    });
+  }
+
+  return { flipped: true, flapping };
 }
 
 // Sensors report reading names with inconsistent casing (`tds` vs `TDS`). Map
@@ -443,7 +481,9 @@ async function handleLwt(device, payloadText) {
   // LWT payload is often a raw string like "offline"
   if (String(payloadText).trim().toLowerCase() !== "offline") return;
 
-  await setAvailability(device, "UNAVAILABLE");
+  // Capture the flip once, up front: the second call would be a no-op (already
+  // UNAVAILABLE) and would report no flapping.
+  const { flapping } = await setAvailability(device, "UNAVAILABLE");
 
   // Publish retained offline status
   if (client && client.connected) {
@@ -460,14 +500,25 @@ async function handleLwt(device, payloadText) {
 
   // Create alert immediately — the cron won't catch LWT-triggered offline because
   // the device is already UNAVAILABLE by the time the cron runs its AVAILABLE→UNAVAILABLE query.
-  await raiseAlert({
-    type: "DEVICE_OFFLINE",
-    plantId: device.plantId,
-    deviceId: device._id,
-    message: `Device ${device.deviceId} disconnected (LWT)`,
-    meta: { detectedBy: "lwt" },
-    context: { deviceName: device.deviceId }
-  });
+  if (flapping) {
+    await raiseAlert({
+      type: "DEVICE_FLAPPING",
+      plantId: device.plantId,
+      deviceId: device._id,
+      message: `Device ${device.deviceId} is flapping between online and offline`,
+      meta: { detectedBy: "lwt" },
+      context: { deviceName: device.deviceId }
+    });
+  } else if (!shouldSuppressOfflineAlert(device)) {
+    await raiseAlert({
+      type: "DEVICE_OFFLINE",
+      plantId: device.plantId,
+      deviceId: device._id,
+      message: `Device ${device.deviceId} disconnected (LWT)`,
+      meta: { detectedBy: "lwt" },
+      context: { deviceName: device.deviceId }
+    });
+  }
 
   console.log(`Device ${device.deviceId} went offline (LWT)`);
 }

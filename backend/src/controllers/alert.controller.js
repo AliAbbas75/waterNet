@@ -1,4 +1,5 @@
 const Alert = require("../models/Alert");
+const MaintenanceTask = require("../models/MaintenanceTask");
 const {
   acknowledgeAlert: acknowledge,
   resolveAlert: resolve
@@ -24,6 +25,19 @@ exports.getAlerts = async (req, res, next) => {
     if (severity) query.severity = severity;
     if (plantId) query.plantId = plantId;
     if (deviceId) query.deviceId = deviceId;
+
+    // A maintainer sees the alerts behind their own work, not the whole
+    // network's. The global list is an operations view; their surface is the
+    // tickets they have been assigned, with severity on every row.
+    if (req.user.role === 'MAINTAINER') {
+      const myTickets = await MaintenanceTask.find({
+        assignedToUserId: req.user._id,
+        status: { $in: ['ASSIGNED', 'IN_PROGRESS', 'BLOCKED'] },
+        'externalRef.type': 'ALERT'
+      }).select('externalRef').lean();
+
+      query._id = { $in: myTickets.map((t) => t.externalRef?.id).filter(Boolean) };
+    }
 
     const alerts = await Alert.find(query)
       .populate('plantId', 'name')

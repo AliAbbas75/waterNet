@@ -4,7 +4,15 @@ const alertSchema = new mongoose.Schema(
   {
     type: {
       type: String,
-      enum: ['QUALITY_UNSAFE', 'AVAILABILITY_CHANGE', 'DEVICE_OFFLINE', 'LOW_INVENTORY'],
+      enum: [
+        'QUALITY_UNSAFE',
+        'AVAILABILITY_CHANGE',
+        'DEVICE_OFFLINE',
+        // A device cycling between up and down is a different fault from one
+        // that is simply down, and needs a different response.
+        'DEVICE_FLAPPING',
+        'LOW_INVENTORY'
+      ],
       required: true
     },
     severity: {

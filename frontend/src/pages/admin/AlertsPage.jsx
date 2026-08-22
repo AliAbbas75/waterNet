@@ -133,6 +133,7 @@ export default function AlertsPage() {
             <option value="">All types</option>
             <option value="QUALITY_UNSAFE">Quality unsafe</option>
             <option value="DEVICE_OFFLINE">Device offline</option>
+            <option value="DEVICE_FLAPPING">Device unstable</option>
             <option value="LOW_INVENTORY">Low inventory</option>
             <option value="AVAILABILITY_CHANGE">Availability change</option>
           </Select>

@@ -6,6 +6,7 @@ const SEVERITY_LABEL = { CRITICAL: "CRITICAL", WARN: "Warning", INFO: "Info" };
 const TYPE_LABEL = {
   QUALITY_UNSAFE: "Water Quality Unsafe",
   DEVICE_OFFLINE: "Device Offline",
+  DEVICE_FLAPPING: "Device Unstable",
   LOW_INVENTORY: "Low Inventory",
   AVAILABILITY_CHANGE: "Availability Change"
 };
@@ -14,6 +15,7 @@ const TYPE_LABEL = {
 const NOTIFY_ROLES = {
   QUALITY_UNSAFE:    ["ADMIN", "SUPER_ADMIN", "MAINTAINER"],
   DEVICE_OFFLINE:    ["ADMIN", "SUPER_ADMIN", "MAINTAINER"],
+  DEVICE_FLAPPING:   ["ADMIN", "SUPER_ADMIN", "MAINTAINER"],
   AVAILABILITY_CHANGE: ["ADMIN", "SUPER_ADMIN"],
   LOW_INVENTORY:     ["ADMIN", "SUPER_ADMIN"]
 };
