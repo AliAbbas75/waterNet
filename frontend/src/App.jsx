@@ -21,6 +21,7 @@ import AdminAlerts from "./pages/admin/AlertsPage.jsx";
 import AdminThresholds from "./pages/admin/ThresholdsPage.jsx";
 import AdminReports from "./pages/admin/ReportsPage.jsx";
 import AdminUsers from "./pages/admin/UsersPage.jsx";
+import AdminAuditLog from "./pages/admin/AuditLogPage.jsx";
 import AdminIssueReports from "./pages/admin/IssueReportsPage.jsx";
 
 import MyTasks from "./pages/maintainer/MyTasksPage.jsx";
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="thresholds" element={<AdminThresholds />} />
         <Route path="reports" element={<AdminReports />} />
         <Route path="issue-reports" element={<AdminIssueReports />} />
+        <Route path="audit" element={<AdminAuditLog />} />
         {/* Account administration is SUPER_ADMIN only — hiding the nav item is
             not enough, the route itself must refuse a hand-typed URL. */}
         <Route

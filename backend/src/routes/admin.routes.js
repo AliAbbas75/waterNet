@@ -58,4 +58,11 @@ router.get(
   auditController.listAuditLogs
 );
 
+router.get(
+  "/audit-logs/summary",
+  protect,
+  requireRole("ADMIN", "SUPER_ADMIN"),
+  auditController.auditSummary
+);
+
 module.exports = router;

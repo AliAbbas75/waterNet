@@ -74,10 +74,15 @@ exports.ackAlert = async (req, res, next) => {
 
 exports.resolveAlert = async (req, res, next) => {
   try {
-    // The note is optional for now and recorded to the audit trail. It becomes
-    // mandatory in Phase 2, when tickets own the response and closing one
-    // without saying what was done stops being acceptable.
-    const note = typeof req.body?.note === 'string' ? req.body.note.trim() || null : null;
+    // Closing an alert costs a sentence. Enforced here and not only in the UI:
+    // a rule that lives in the form is not a rule, it is a suggestion that any
+    // direct API call ignores.
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+    if (!note) {
+      return res.status(400).json({
+        error: 'A note is required to resolve an alert — record what was done.'
+      });
+    }
     const result = await resolve({ alertId: req.params.id, user: req.user, req, note });
     if (result.error === 'NOT_FOUND') return res.status(404).json({ error: 'Alert not found' });
     if (result.error === 'ALREADY_RESOLVED') {

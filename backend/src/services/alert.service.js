@@ -286,8 +286,9 @@ async function acknowledgeAlert({ alertId, user, req = null }) {
 }
 
 /**
- * A person closes an alert. The optional note is recorded to the audit trail —
- * it becomes mandatory in Phase 2 when tickets own the response.
+ * A person closes an alert. The note is required by the route and recorded to
+ * the audit trail — it is the "what was actually done" that the old one-click
+ * resolve threw away.
  */
 async function resolveAlert({ alertId, user, req = null, note = null }) {
   const alert = await Alert.findById(alertId);

@@ -31,7 +31,9 @@ export function useAckAlert() {
 export function useResolveAlert() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id) => api.patch(`/api/alerts/${id}/resolve`),
+    // A note is required at the call site now: closing an alert with no record
+    // of what was done is the behaviour this whole revamp exists to remove.
+    mutationFn: ({ id, note }) => api.patch(`/api/alerts/${id}/resolve`, { note }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["alerts"] })
   });
 }
