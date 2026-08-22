@@ -175,11 +175,11 @@ function connectMqtt() {
 
         await raiseAlert({
           type: "DEVICE_OFFLINE",
-          severity: "WARN",
           plantId: device.plantId,
           deviceId: device._id,
           message: `Device ${device.deviceId} is offline`,
-          meta: { detectedBy: "availability-sweep", lastSeenAt: device.lastSeenAt }
+          meta: { detectedBy: "availability-sweep", lastSeenAt: device.lastSeenAt },
+          context: { deviceName: device.deviceId }
         });
       }
     } catch (err) {
@@ -462,11 +462,11 @@ async function handleLwt(device, payloadText) {
   // the device is already UNAVAILABLE by the time the cron runs its AVAILABLE→UNAVAILABLE query.
   await raiseAlert({
     type: "DEVICE_OFFLINE",
-    severity: "WARN",
     plantId: device.plantId,
     deviceId: device._id,
     message: `Device ${device.deviceId} disconnected (LWT)`,
-    meta: { detectedBy: "lwt" }
+    meta: { detectedBy: "lwt" },
+    context: { deviceName: device.deviceId }
   });
 
   console.log(`Device ${device.deviceId} went offline (LWT)`);

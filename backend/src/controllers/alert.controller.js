@@ -11,7 +11,8 @@ function populate(id) {
     .populate("inventoryItemId", "name");
 }
 
-const SEVERITY_ORDER = { CRITICAL: 0, WARN: 1, INFO: 2 };
+// WARN retained so alerts written before the ladder change still sort sanely.
+const SEVERITY_ORDER = { CRITICAL: 0, MAJOR: 1, WARN: 1, MINOR: 2, INFO: 3 };
 
 exports.getAlerts = async (req, res, next) => {
   try {

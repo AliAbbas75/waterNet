@@ -1,4 +1,6 @@
 const Alert = require("../models/Alert");
+const MaintenanceTask = require("../models/MaintenanceTask");
+const { severityFor, ticketForAlert } = require("./alert.policy");
 const { logAudit } = require("./audit.service");
 const { emit: socketEmit } = require("./socket.service");
 const { notifyAdminsOfAlert } = require("./alert.notification.service");
@@ -32,14 +34,17 @@ function scopeOf(alert) {
  */
 async function raiseAlert({
   type,
-  severity = "INFO",
   plantId = null,
   deviceId = null,
   inventoryItemId = null,
   message,
   meta = null,
+  context = {},
   notify = true
 }) {
+  // Severity is the policy's to decide. Call sites passing their own is how the
+  // same condition ended up MAJOR in one place and CRITICAL in another.
+  const severity = severityFor(type);
   const scope = { type, plantId, deviceId, inventoryItemId };
   const existing = await Alert.findOne({ ...scope, status: { $in: LIVE_STATUSES } });
 
@@ -81,13 +86,53 @@ async function raiseAlert({
 
   socketEmit("alert:new", { alert });
 
+  const ticket = await openTicketForAlert(alert, context);
+
   if (notify) {
     notifyAdminsOfAlert(alert).catch((err) =>
       console.error("Alert notification error:", err?.message || err)
     );
   }
 
-  return { alert, created: true };
+  return { alert, ticket, created: true };
+}
+
+/**
+ * Opens the work order an alert demands, per the policy table. Returns null for
+ * types that raise no ticket.
+ *
+ * The ticket starts in TRIAGE with no assignee: an admin routes it. That is the
+ * whole point of the bridge — an alert now produces something a person owns,
+ * instead of a row with an Acknowledge button.
+ */
+async function openTicketForAlert(alert, context = {}) {
+  const spec = ticketForAlert(alert, context);
+  if (!spec) return null;
+
+  const { checklist, ...fields } = spec;
+
+  const task = await MaintenanceTask.create({
+    ...fields,
+    checklist: (checklist || []).map((label) => ({ label, done: false }))
+  });
+
+  await Alert.updateOne({ _id: alert._id }, { ticketId: task._id });
+  alert.ticketId = task._id;
+
+  await logAudit({
+    event: "ticket.opened",
+    targetType: "TASK",
+    targetId: task._id,
+    meta: {
+      raisedByAlert: String(alert._id),
+      alertType: alert.type,
+      severity: task.severity,
+      triageDueAt: task.triageDueAt
+    }
+  });
+
+  socketEmit("task:updated", { task });
+  return task;
 }
 
 /**
@@ -200,6 +245,7 @@ async function resolveAlert({ alertId, user, req = null, note = null }) {
 
 module.exports = {
   raiseAlert,
+  openTicketForAlert,
   clearAlerts,
   acknowledgeAlert,
   resolveAlert,

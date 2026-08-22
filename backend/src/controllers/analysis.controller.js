@@ -100,13 +100,18 @@ async function evaluateQuality(plantId, deviceRef, deviceKey) {
   );
 
   if (overallCategory === 'UNSAFE') {
+    const breached = reasons.filter((r) => r.threshold !== 'safe').map((r) => r.parameter);
+    // Only queried on an actual breach, and raiseAlert de-duplicates after, so
+    // this does not run per telemetry message.
+    const plantDoc = await Plant.findById(plantId).select('name').lean();
+
     await raiseAlert({
       type: 'QUALITY_UNSAFE',
-      severity: 'CRITICAL',
       plantId,
       deviceId: deviceRef,
-      message: `Water quality unsafe at plant ${plantId}`,
-      meta: { reasons: reasons.filter((r) => r.threshold !== 'safe').map((r) => r.parameter) }
+      message: `Water quality unsafe at plant ${plantDoc?.name || plantId}`,
+      meta: { reasons: breached },
+      context: { plantName: plantDoc?.name, parameters: breached.join(', ') }
     });
   } else {
     // Readings came back inside limits. The alert stops being OPEN, but a

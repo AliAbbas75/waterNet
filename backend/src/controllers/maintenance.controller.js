@@ -5,6 +5,7 @@ const InventoryItem = require("../models/InventoryItem");
 const mongoose = require("mongoose");
 const { emit: socketEmit } = require("../services/socket.service");
 const { checkLowStock } = require("../services/inventory.service");
+const { logAudit } = require("../services/audit.service");
 
 // Admin: Create task
 exports.createTask = async (req, res, next) => {
@@ -24,6 +25,11 @@ exports.createTask = async (req, res, next) => {
     const task = new MaintenanceTask({
       title,
       description,
+      // Explicit: the model now defaults to TRIAGE for system-raised tickets,
+      // but a task created by hand already names its assignee.
+      status: 'ASSIGNED',
+      origin: 'MANUAL',
+      severity: req.body.severity || 'MINOR',
       assignedToUserId,
       assignedByUserId: req.user._id,
       plantId,
@@ -55,7 +61,7 @@ exports.assignTask = async (req, res, next) => {
     }
 
     // If task is IN_PROGRESS, require soft handoff log from current assignee
-    if (task.status === 'IN_PROGRESS' && task.assignedToUserId.toString() !== assignedToUserId) {
+    if (task.status === 'IN_PROGRESS' && task.assignedToUserId && task.assignedToUserId.toString() !== assignedToUserId) {
       if (!handoffLogId) {
         return res.status(400).json({ error: 'handoffLogId required for reassignment' });
       }
@@ -87,11 +93,36 @@ exports.assignTask = async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid assignee' });
     }
 
+    const wasTriage = task.status === 'TRIAGE';
+
     task.assignedToUserId = assignedToUserId;
     task.assignedByUserId = req.user._id;
     task.assignedAt = new Date();
 
+    // Routing a system-raised ticket out of TRIAGE is the moment a person takes
+    // it on. Record who did it and whether they beat the deadline, because an
+    // unassigned critical ticket is itself an incident.
+    if (wasTriage) {
+      task.status = 'ASSIGNED';
+      task.triagedByUserId = req.user._id;
+      task.triagedAt = new Date();
+    }
+
     await task.save();
+
+    await logAudit({
+      event: wasTriage ? 'ticket.triaged' : 'ticket.reassigned',
+      req,
+      actorUserId: req.user._id,
+      targetType: 'TASK',
+      targetId: task._id,
+      meta: {
+        assignedToUserId: String(assignedToUserId),
+        severity: task.severity,
+        origin: task.origin,
+        overdue: task.triageDueAt ? new Date() > task.triageDueAt : null
+      }
+    });
     await task.populate(['assignedToUserId', 'assignedByUserId', 'plantId', 'deviceId']);
 
     socketEmit("task:updated", { task });

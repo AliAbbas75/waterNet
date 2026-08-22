@@ -132,7 +132,6 @@ exports.updatePlant = async (req, res, next) => {
       } else {
         await raiseAlert({
           type: 'AVAILABILITY_CHANGE',
-          severity: newStatus === 'CLOSED' ? 'CRITICAL' : 'WARN',
           plantId: plant._id,
           message: `Plant "${plant.name}" is now ${newStatus.toLowerCase()}`,
           meta: { from: prevStatus, to: newStatus }

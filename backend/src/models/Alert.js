@@ -9,7 +9,11 @@ const alertSchema = new mongoose.Schema(
     },
     severity: {
       type: String,
-      enum: ['INFO', 'WARN', 'CRITICAL'],
+      // The ladder decides behaviour, not just colour: it sets the triage
+      // deadline and whether an alert raises a ticket at all. MAJOR replaces
+      // the old WARN so there is room between "needs attention today" (MINOR)
+      // and "monitoring is blind or a plant is degraded" (MAJOR).
+      enum: ['INFO', 'MINOR', 'MAJOR', 'CRITICAL'],
       default: 'INFO'
     },
     plantId: {
@@ -46,6 +50,13 @@ const alertSchema = new mongoose.Schema(
     // gap between them is the response time.
     conditionClearedAt: {
       type: Date,
+      default: null
+    },
+    // The work order this alert raised, when its policy calls for one. Stored
+    // so the alert view can link forward without a reverse scan of tasks.
+    ticketId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'MaintenanceTask',
       default: null
     },
     ackAt: {

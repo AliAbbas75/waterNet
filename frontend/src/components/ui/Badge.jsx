@@ -52,6 +52,8 @@ export function statusVariant(status) {
       return "safe";
     case "WARNING":
     case "WARN":
+    case "MAJOR":
+    case "MINOR":
     case "MAINTENANCE":
     case "IN_PROGRESS":
     case "IN_REVIEW":

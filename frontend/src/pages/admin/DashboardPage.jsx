@@ -141,7 +141,7 @@ export default function DashboardPage() {
   );
 }
 
-const SEVERITY_ORDER = { CRITICAL: 0, WARN: 1, INFO: 2 };
+const SEVERITY_ORDER = { CRITICAL: 0, MAJOR: 1, WARN: 1, MINOR: 2, INFO: 3 };
 
 function AlertList({ alerts, loading }) {
   if (loading) {
@@ -174,7 +174,7 @@ function AlertList({ alerts, loading }) {
             className={
               a.severity === "CRITICAL"
                 ? "mt-0.5 grid place-items-center h-8 w-8 rounded-lg bg-red-50 text-red-600"
-                : a.severity === "WARN"
+                : (a.severity === "MAJOR" || a.severity === "WARN")
                 ? "mt-0.5 grid place-items-center h-8 w-8 rounded-lg bg-amber-50 text-amber-600"
                 : "mt-0.5 grid place-items-center h-8 w-8 rounded-lg bg-sky-50 text-sky-600"
             }

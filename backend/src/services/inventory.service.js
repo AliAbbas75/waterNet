@@ -5,7 +5,6 @@ async function checkLowStock(item) {
 
   await raiseAlert({
     type: "LOW_INVENTORY",
-    severity: "WARN",
     inventoryItemId: item._id,
     message: `Low stock for ${item.name}: ${item.quantity} remaining (threshold: ${item.reorderThreshold})`,
     meta: { quantity: item.quantity, reorderThreshold: item.reorderThreshold }

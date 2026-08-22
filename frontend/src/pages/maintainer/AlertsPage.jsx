@@ -50,7 +50,7 @@ export default function MaintainerAlertsPage() {
                 className={
                   a.severity === "CRITICAL"
                     ? "grid place-items-center h-9 w-9 rounded-lg bg-red-50 text-red-600 shrink-0"
-                    : a.severity === "WARN"
+                    : (a.severity === "MAJOR" || a.severity === "WARN")
                     ? "grid place-items-center h-9 w-9 rounded-lg bg-amber-50 text-amber-600 shrink-0"
                     : "grid place-items-center h-9 w-9 rounded-lg bg-sky-50 text-sky-600 shrink-0"
                 }

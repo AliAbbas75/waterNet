@@ -125,7 +125,8 @@ export default function AlertsPage() {
           <Select value={severity} onChange={(e) => setSeverity(e.target.value)}>
             <option value="">All severities</option>
             <option value="CRITICAL">Critical</option>
-            <option value="WARN">Warning</option>
+            <option value="MAJOR">Major</option>
+            <option value="MINOR">Minor</option>
             <option value="INFO">Info</option>
           </Select>
           <Select value={type} onChange={(e) => setType(e.target.value)}>
