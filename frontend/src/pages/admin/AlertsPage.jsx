@@ -1,18 +1,32 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, CheckCheck, AlertTriangle, BellRing, ClipboardList, History } from "lucide-react";
+import {
+  Check,
+  AlertTriangle,
+  BellRing,
+  ClipboardList,
+  History,
+  UserPlus,
+  XCircle,
+  ArrowRight
+} from "lucide-react";
 import { PageHeader } from "../../components/ui/PageHeader.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { Card } from "../../components/ui/Card.jsx";
-import { Select } from "../../components/ui/Input.jsx";
 import { DataTable } from "../../components/ui/DataTable.jsx";
 import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { Modal } from "../../components/ui/Modal.jsx";
-import { Field, Textarea } from "../../components/ui/Input.jsx";
-import { useAckAlert, useAlerts, useResolveAlert } from "../../hooks/useAlerts.js";
+import { Field, Select, Textarea } from "../../components/ui/Input.jsx";
+import {
+  useAckAlert,
+  useAlerts,
+  useDispatchAlert,
+  useResolveAlert
+} from "../../hooks/useAlerts.js";
 import { useAuditTrail } from "../../hooks/useAudit.js";
+import { useUsers } from "../../hooks/useUsers.js";
 import { relTime } from "../../lib/format.js";
 
 // The monitored condition stopped on its own, but a person still has to
@@ -24,6 +38,18 @@ const STATUS_LABEL = {
   RESOLVED: "Resolved"
 };
 
+// A work order's state in the words an operator uses, not the enum.
+const TICKET_STATUS = {
+  TRIAGE: { label: "Needs routing", variant: "warn" },
+  ASSIGNED: { label: "Assigned", variant: "info" },
+  IN_PROGRESS: { label: "In progress", variant: "info" },
+  BLOCKED: { label: "Blocked", variant: "unsafe" },
+  RESOLVED: { label: "Done", variant: "safe" },
+  CANCELLED: { label: "Cancelled", variant: "muted" }
+};
+
+const personName = (u) => (u ? u.display_name || u.email : null);
+
 export default function AlertsPage() {
   const [status, setStatus] = useState("OPEN");
   const [type, setType] = useState("");
@@ -31,9 +57,13 @@ export default function AlertsPage() {
   const filters = useMemo(() => ({ status, type, severity }), [status, type, severity]);
   const alerts = useAlerts(filters);
   const ack = useAckAlert();
+  const dispatch = useDispatchAlert();
   const resolve = useResolveAlert();
-  const [resolving, setResolving] = useState(null); // alert awaiting a closing note
-  const [trailFor, setTrailFor] = useState(null);   // alert whose history is open
+
+  const [dispatching, setDispatching] = useState(null); // alert being assigned
+  const [closing, setClosing] = useState(null); // alert being closed by hand
+  const [trailFor, setTrailFor] = useState(null); // alert whose history is open
+  const [outcome, setOutcome] = useState(null); // what the last action produced
 
   const columns = useMemo(
     () => [
@@ -47,45 +77,38 @@ export default function AlertsPage() {
         )
       },
       {
-        key: "type",
-        header: "Type",
-        render: (a) => <span className="text-sm text-slate-700">{a.type.replace(/_/g, " ")}</span>
-      },
-      {
-        key: "ticket",
-        header: "Work order",
-        mobileLabel: "Work order",
-        render: (a) =>
-          a.ticketId ? (
-            <Link
-              to={`/admin/maintenance/${a.ticketId}`}
-              onClick={(e) => e.stopPropagation()}
-              className="inline-flex items-center gap-1.5 text-sm text-brand-700 hover:underline"
-            >
-              <ClipboardList size={14} />
-              Open ticket
-            </Link>
-          ) : (
-            <span className="text-sm text-slate-400">no ticket</span>
-          )
-      },
-      {
         key: "message",
-        header: "Message",
+        header: "Alert",
         render: (a) => (
           <div className="min-w-0">
             <p className="text-sm text-slate-800 truncate">{a.message}</p>
             <p className="text-xs text-slate-500 truncate">
-              {[a.plantId?.name, a.deviceId?.deviceId, a.inventoryItemId?.name].filter(Boolean).join(" • ")}
+              {[
+                a.type.replace(/_/g, " ").toLowerCase(),
+                a.plantId?.name,
+                a.deviceId?.deviceId,
+                a.inventoryItemId?.name
+              ]
+                .filter(Boolean)
+                .join(" • ")}
             </p>
           </div>
         )
       },
       {
+        key: "ticket",
+        header: "Work order",
+        mobileLabel: "Work order",
+        render: (a) => <TicketCell alert={a} />
+      },
+      {
         key: "status",
         header: "Status",
         render: (a) => (
-          <Badge variant={a.status === "CLEARED_PENDING_REVIEW" ? "warn" : statusVariant(a.status)} dot>
+          <Badge
+            variant={a.status === "CLEARED_PENDING_REVIEW" ? "warn" : statusVariant(a.status)}
+            dot
+          >
             {STATUS_LABEL[a.status] || a.status}
           </Badge>
         )
@@ -99,47 +122,86 @@ export default function AlertsPage() {
         key: "actions",
         header: "",
         cellClassName: "text-right",
-        render: (a) => (
-          <div className="inline-flex gap-1.5">
-            {a.status === "OPEN" ? (
+        render: (a) => {
+          const ticket = a.ticketId;
+          const assigned = !!ticket?.assignedToUserId;
+          if (a.status === "RESOLVED") {
+            return (
               <Button
-                variant="secondary"
+                variant="ghost"
                 size="sm"
-                onClick={() => ack.mutate(a._id)}
-                loading={ack.isPending && ack.variables === a._id}
-                leftIcon={<Check size={14} />}
+                onClick={() => setTrailFor(a)}
+                leftIcon={<History size={14} />}
               >
-                Ack
+                History
               </Button>
-            ) : null}
-            {a.status !== "RESOLVED" ? (
-              <Button size="sm" onClick={() => setResolving(a)} leftIcon={<CheckCheck size={14} />}>
-                Resolve
+            );
+          }
+          return (
+            <div className="inline-flex gap-1.5">
+              {a.status === "OPEN" ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => {
+                    const res = await ack.mutateAsync(a._id);
+                    setOutcome({
+                      kind: "ack",
+                      ticketId: res.ticketId,
+                      created: res.ticketCreated,
+                      selfAssigned: res.selfAssigned
+                    });
+                  }}
+                  loading={ack.isPending && ack.variables === a._id}
+                  leftIcon={<Check size={14} />}
+                  title="Take this on — opens a work order for it"
+                >
+                  Acknowledge
+                </Button>
+              ) : null}
+              <Button
+                size="sm"
+                onClick={() => setDispatching(a)}
+                leftIcon={<UserPlus size={14} />}
+                title="Hand this to a maintainer"
+              >
+                {assigned ? "Reassign" : "Assign"}
               </Button>
-            ) : null}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setTrailFor(a)}
-              leftIcon={<History size={14} />}
-              title="Show this alert's full history"
-            >
-              History
-            </Button>
-          </div>
-        )
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setTrailFor(a)}
+                leftIcon={<History size={14} />}
+                title="Show this alert's full history"
+              >
+                History
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setClosing(a)}
+                leftIcon={<XCircle size={14} />}
+                title="Close without sending anyone — needs a reason"
+              >
+                Close
+              </Button>
+            </div>
+          );
+        }
       }
     ],
-    [ack, resolve]
+    [ack]
   );
 
   return (
     <>
       <PageHeader
         title="Alerts"
-        description="Quality, availability, device offline and inventory alerts raised by the system."
+        description="Every alert here is answered by giving it to a person. Acknowledging opens the work order; assigning sends it out; the alert closes when the work is done."
         action={<BellRing size={20} className="text-slate-400" />}
       />
+
+      {outcome ? <OutcomeBanner outcome={outcome} onDismiss={() => setOutcome(null)} /> : null}
 
       <Card className="mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -185,13 +247,29 @@ export default function AlertsPage() {
           }
         />
       )}
-      <ResolveModal
-        alert={resolving}
-        onClose={() => setResolving(null)}
+
+      <DispatchModal
+        alert={dispatching}
+        onClose={() => setDispatching(null)}
+        loading={dispatch.isPending}
+        onConfirm={async ({ assignedToUserId, note }) => {
+          const res = await dispatch.mutateAsync({
+            id: dispatching._id,
+            assignedToUserId,
+            note
+          });
+          setOutcome({ kind: "dispatch", ticketId: res.ticketId, assignedTo: res.assignedTo });
+          setDispatching(null);
+        }}
+      />
+      <CloseModal
+        alert={closing}
+        onClose={() => setClosing(null)}
         loading={resolve.isPending}
         onConfirm={async (note) => {
-          await resolve.mutateAsync({ id: resolving._id, note });
-          setResolving(null);
+          const res = await resolve.mutateAsync({ id: closing._id, note });
+          setOutcome({ kind: "close", cancelledTicketId: res.cancelledTicketId });
+          setClosing(null);
         }}
       />
       <AuditTrailModal alert={trailFor} onClose={() => setTrailFor(null)} />
@@ -200,17 +278,108 @@ export default function AlertsPage() {
 }
 
 /**
- * Closing an alert now costs a sentence. One-click resolve is exactly what let
- * alerts vanish with no record of what was actually done about them.
+ * The answer to "where did this go". Every row says whether work exists for it,
+ * what state that work is in, and who is holding it.
  */
-function ResolveModal({ alert, onClose, onConfirm, loading }) {
+function TicketCell({ alert }) {
+  const ticket = alert.ticketId;
+  if (!ticket) {
+    return (
+      <span className="text-sm text-slate-400">
+        {alert.status === "OPEN" ? "none yet" : "none"}
+      </span>
+    );
+  }
+  const meta = TICKET_STATUS[ticket.status] || { label: ticket.status, variant: "muted" };
+  const assignee = personName(ticket.assignedToUserId);
+
+  return (
+    <Link
+      to={`/admin/maintenance/${ticket._id}`}
+      onClick={(e) => e.stopPropagation()}
+      className="inline-flex flex-col gap-0.5 group"
+    >
+      <span className="inline-flex items-center gap-1.5">
+        <ClipboardList size={14} className="text-slate-400" />
+        <Badge variant={meta.variant}>{meta.label}</Badge>
+      </span>
+      <span className="text-xs text-slate-500 group-hover:text-brand-700 group-hover:underline">
+        {assignee || "waiting for an assignee"}
+      </span>
+    </Link>
+  );
+}
+
+/** Says plainly what the click just did, since none of it happens on this page. */
+function OutcomeBanner({ outcome, onDismiss }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 12000);
+    return () => clearTimeout(t);
+  }, [outcome, onDismiss]);
+
+  let text;
+  if (outcome.kind === "ack") {
+    text = outcome.ticketId
+      ? outcome.selfAssigned
+        ? "Acknowledged. A work order was opened and assigned to you."
+        : outcome.created
+        ? "Acknowledged. A work order was opened and is waiting to be assigned."
+        : "Acknowledged. This alert already had a work order."
+      : "Acknowledged. This type carries no work order — it is recorded in the audit log.";
+  } else if (outcome.kind === "dispatch") {
+    text = `Assigned to ${outcome.assignedTo}. The alert stays open until the work order is resolved.`;
+  } else {
+    text = outcome.cancelledTicketId
+      ? "Alert closed and its open work order cancelled. The reason is on both records."
+      : "Alert closed. The reason is on the record.";
+  }
+
+  return (
+    <div className="mb-4 flex items-start gap-3 rounded-xl bg-brand-50 px-4 py-3 ring-1 ring-inset ring-brand-100">
+      <Check size={16} className="mt-0.5 shrink-0 text-brand-600" />
+      <p className="flex-1 text-sm text-brand-900">{text}</p>
+      {outcome.ticketId ? (
+        <Link
+          to={`/admin/maintenance/${outcome.ticketId}`}
+          className="inline-flex items-center gap-1 text-sm font-medium text-brand-700 hover:underline shrink-0"
+        >
+          Open work order <ArrowRight size={14} />
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The primary way an alert is answered. An alert is not something you dismiss,
+ * it is something you give to somebody — so this asks who, and hands them the
+ * instruction along with it.
+ */
+function DispatchModal({ alert, onClose, onConfirm, loading }) {
+  const users = useUsers();
+  const [assignedToUserId, setAssignedToUserId] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
 
-  useMemo(() => {
+  useEffect(() => {
+    setAssignedToUserId(alert?.ticketId?.assignedToUserId?._id || "");
     setNote("");
     setError("");
   }, [alert]);
+
+  const ticket = alert?.ticketId;
+  const ownerRole = ticket?.ownerRole || "MAINTAINER";
+
+  // The role the policy says owns this work is listed first, so the obvious
+  // choice is the one under the cursor.
+  const candidates = useMemo(() => {
+    const all = (users.data || []).filter(
+      (u) => ["MAINTAINER", "ADMIN"].includes(u.role) && u.active !== false
+    );
+    const preferred = all.filter((u) => u.role === ownerRole);
+    const others = all.filter((u) => u.role !== ownerRole);
+    return { preferred, others };
+  }, [users.data, ownerRole]);
 
   if (!alert) return null;
 
@@ -218,7 +387,7 @@ function ResolveModal({ alert, onClose, onConfirm, loading }) {
     <Modal
       open={!!alert}
       onClose={onClose}
-      title="Resolve alert"
+      title={ticket?.assignedToUserId ? "Reassign this alert" : "Assign this alert"}
       subtitle={alert.message}
       footer={
         <>
@@ -227,34 +396,137 @@ function ResolveModal({ alert, onClose, onConfirm, loading }) {
           </Button>
           <Button
             loading={loading}
+            leftIcon={<UserPlus size={14} />}
+            onClick={() => {
+              if (!assignedToUserId) {
+                setError("Choose who this is going to.");
+                return;
+              }
+              onConfirm({ assignedToUserId, note: note.trim() || undefined });
+            }}
+          >
+            {ticket?.assignedToUserId ? "Reassign" : "Assign"}
+          </Button>
+        </>
+      }
+    >
+      <div className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">
+        {ticket
+          ? "This routes the existing work order."
+          : "This opens a work order for the alert and routes it."}{" "}
+        The alert stays open until that work order is resolved — that is the only
+        point at which anyone can say the problem went away.
+      </div>
+
+      <Field label="Assign to" required>
+        <Select
+          value={assignedToUserId}
+          onChange={(e) => setAssignedToUserId(e.target.value)}
+          disabled={users.isLoading}
+        >
+          <option value="">{users.isLoading ? "Loading people…" : "Choose a person…"}</option>
+          {candidates.preferred.length ? (
+            <optgroup label={ownerRole === "MAINTAINER" ? "Maintainers" : "Admins"}>
+              {candidates.preferred.map((u) => (
+                <option key={u._id} value={u._id}>
+                  {personName(u)}
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
+          {candidates.others.length ? (
+            <optgroup label="Others">
+              {candidates.others.map((u) => (
+                <option key={u._id} value={u._id}>
+                  {personName(u)} ({u.role})
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
+        </Select>
+      </Field>
+
+      <Field label="Instructions" hint="Optional — goes on the work order for them to read.">
+        <Textarea
+          rows={3}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="e.g. check the power supply at the cabinet before replacing the board"
+        />
+      </Field>
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+    </Modal>
+  );
+}
+
+/**
+ * The escape hatch, deliberately not the default: closing an alert because it
+ * was a false positive or was already dealt with off-system. It costs a reason,
+ * and it cancels any work order rather than stranding a maintainer with a job
+ * for an incident that no longer officially exists.
+ */
+function CloseModal({ alert, onClose, onConfirm, loading }) {
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setNote("");
+    setError("");
+  }, [alert]);
+
+  if (!alert) return null;
+
+  const liveTicket =
+    alert.ticketId && !["RESOLVED", "CANCELLED"].includes(alert.ticketId.status)
+      ? alert.ticketId
+      : null;
+
+  return (
+    <Modal
+      open={!!alert}
+      onClose={onClose}
+      title="Close without dispatch"
+      subtitle={alert.message}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            loading={loading}
             onClick={() => {
               if (!note.trim()) {
-                setError("Say what was done - it goes on the permanent record.");
+                setError("Say why — it goes on the permanent record.");
                 return;
               }
               onConfirm(note.trim());
             }}
           >
-            Resolve
+            Close alert
           </Button>
         </>
       }
     >
-      {alert.ticketId ? (
+      {liveTicket ? (
         <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 ring-1 ring-inset ring-amber-200">
-          This alert has a work order. Normally the ticket is closed and the alert
-          follows - resolving here bypasses that.{" "}
-          <Link to={`/admin/maintenance/${alert.ticketId}`} className="underline font-medium">
-            Open the ticket instead
-          </Link>
+          This alert has an open work order
+          {personName(liveTicket.assignedToUserId)
+            ? ` with ${personName(liveTicket.assignedToUserId)}`
+            : " waiting to be assigned"}
+          . Closing here cancels it. If the work is genuinely needed,{" "}
+          <Link to={`/admin/maintenance/${liveTicket._id}`} className="underline font-medium">
+            resolve the work order instead
+          </Link>{" "}
+          — the alert closes by itself when you do.
         </div>
       ) : null}
-      <Field label="What was done?" required>
+      <Field label="Why is this being closed without anyone doing the work?" required>
         <Textarea
           rows={3}
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="e.g. replaced the turbidity probe, readings back within range"
+          placeholder="e.g. false positive — probe was unplugged during scheduled calibration"
         />
       </Field>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
@@ -265,11 +537,12 @@ function ResolveModal({ alert, onClose, onConfirm, loading }) {
 const EVENT_LABEL = {
   "alert.raised": "Raised by the system",
   "alert.acknowledged": "Acknowledged",
-  "alert.resolved": "Resolved",
-  "alert.auto_resolved": "Auto-cleared - condition stopped",
-  "alert.cleared_pending_review": "Condition cleared - awaiting review",
-  "alert.reopened": "Reopened - condition returned",
-  "ticket.opened": "Work order opened"
+  "alert.dispatched": "Assigned to a person",
+  "alert.resolved": "Closed by hand, without dispatch",
+  "alert.resolved_by_ticket": "Resolved — the work order was completed",
+  "alert.auto_resolved": "Auto-cleared — condition stopped",
+  "alert.cleared_pending_review": "Condition cleared — awaiting review",
+  "alert.reopened": "Reopened — condition returned"
 };
 
 /** The answer to "where did this go after I clicked the button". */
@@ -305,9 +578,14 @@ function AuditTrailModal({ alert, onClose }) {
                 {EVENT_LABEL[l.event] || l.event}
               </p>
               <p className="text-xs text-slate-500">
-                {l.actorUserId ? l.actorUserId.display_name || l.actorUserId.email : "System"} ·{" "}
-                {relTime(l.createdAt)}
+                {l.actorUserId ? personName(l.actorUserId) : "System"} · {relTime(l.createdAt)}
               </p>
+              {l.meta?.assignedTo ? (
+                <p className="mt-1 text-xs text-slate-600">
+                  to {l.meta.assignedTo}
+                  {l.meta.role ? ` (${l.meta.role})` : ""}
+                </p>
+              ) : null}
               {l.meta?.note ? (
                 <p className="mt-1 text-sm text-slate-700 bg-slate-50 rounded px-2 py-1">
                   {l.meta.note}

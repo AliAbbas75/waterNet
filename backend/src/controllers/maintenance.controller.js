@@ -6,7 +6,8 @@ const mongoose = require("mongoose");
 const { emit: socketEmit } = require("../services/socket.service");
 const { checkLowStock } = require("../services/inventory.service");
 const { logAudit } = require("../services/audit.service");
-const { clearAdvisory } = require("../services/alert.service");
+const { clearAdvisory, resolveAlertForTicket } = require("../services/alert.service");
+const { assignTicket } = require("../services/ticket.service");
 const Plant = require("../models/Plant");
 
 // Admin: Create task
@@ -32,6 +33,8 @@ exports.createTask = async (req, res, next) => {
       status: 'ASSIGNED',
       origin: 'MANUAL',
       severity: req.body.severity || 'MINOR',
+      // A hand-created task belongs to whoever it was written for.
+      ownerRole: assignee.role === 'MAINTAINER' ? 'MAINTAINER' : 'ADMIN',
       assignedToUserId,
       assignedByUserId: req.user._id,
       plantId,
@@ -62,6 +65,10 @@ exports.assignTask = async (req, res, next) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
+    // Set when the handoff below already wrote the note to the task log, so the
+    // assignment does not write it a second time.
+    let handoffLogged = false;
+
     // If task is IN_PROGRESS, require soft handoff log from current assignee
     if (task.status === 'IN_PROGRESS' && task.assignedToUserId && task.assignedToUserId.toString() !== assignedToUserId) {
       if (!handoffLogId) {
@@ -87,47 +94,26 @@ exports.assignTask = async (req, res, next) => {
           handoffLogId: handoffLog._id
         }
       });
+      handoffLogged = true;
     }
 
-    // Check new assignee
-    const assignee = await User.findById(assignedToUserId);
-    if (!assignee || !['MAINTAINER', 'ADMIN'].includes(assignee.role)) {
+    // One assignment path, shared with the alert list. Two copies of this
+    // drifted until only one of them wrote the audit entry.
+    const result = await assignTicket({
+      task,
+      assignedToUserId,
+      actorUserId: req.user._id,
+      req,
+      note: handoffLogged ? null : handoffNote || null
+    });
+    if (result.error === 'INVALID_ASSIGNEE') {
       return res.status(400).json({ error: 'Invalid assignee' });
     }
-
-    const wasTriage = task.status === 'TRIAGE';
-
-    task.assignedToUserId = assignedToUserId;
-    task.assignedByUserId = req.user._id;
-    task.assignedAt = new Date();
-
-    // Routing a system-raised ticket out of TRIAGE is the moment a person takes
-    // it on. Record who did it and whether they beat the deadline, because an
-    // unassigned critical ticket is itself an incident.
-    if (wasTriage) {
-      task.status = 'ASSIGNED';
-      task.triagedByUserId = req.user._id;
-      task.triagedAt = new Date();
+    if (result.error === 'INACTIVE_ASSIGNEE') {
+      return res.status(400).json({ error: 'That account is suspended and cannot hold work.' });
     }
 
-    await task.save();
-
-    await logAudit({
-      event: wasTriage ? 'ticket.triaged' : 'ticket.reassigned',
-      req,
-      actorUserId: req.user._id,
-      targetType: 'TASK',
-      targetId: task._id,
-      meta: {
-        assignedToUserId: String(assignedToUserId),
-        severity: task.severity,
-        origin: task.origin,
-        overdue: task.triageDueAt ? new Date() > task.triageDueAt : null
-      }
-    });
     await task.populate(['assignedToUserId', 'assignedByUserId', 'plantId', 'deviceId']);
-
-    socketEmit("task:updated", { task });
     res.json({ task });
   } catch (err) {
     next(err);
@@ -440,6 +426,15 @@ exports.resolveTask = async (req, res, next) => {
     }
 
     await task.populate(['assignedToUserId', 'assignedByUserId', 'plantId', 'deviceId', 'resolvedByUserId']);
+
+    // The work is done, so the alert that asked for it is done. This is the
+    // return leg of dispatch: an admin never has to go back and close the alert
+    // by hand, and an alert cannot read as resolved while its work is still open.
+    await resolveAlertForTicket(task, {
+      actorUserId: req.user._id,
+      req,
+      summary: task.resolutionSummary
+    });
 
     // The incident is closed out, so the public advisory can be lifted. The
     // plant is deliberately NOT reopened here — putting a water plant back into
