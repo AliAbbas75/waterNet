@@ -23,10 +23,13 @@ const POLICY = {
     // operationalStatus itself — it asks a person to go and do it, and the
     // status follows from the completed checklist.
     checklist: [
-      "Plant physically closed to the public",
-      "Public advisory issued",
-      "Sample taken for laboratory confirmation",
-      "Source of contamination identified"
+      // Completing this is what closes the plant. The effect is declared here
+      // rather than matched on the label, so wording can change without
+      // silently detaching the behaviour.
+      { label: "Plant physically closed to the public", effect: "CLOSE_PLANT" },
+      { label: "Public advisory issued" },
+      { label: "Sample taken for laboratory confirmation" },
+      { label: "Source of contamination identified" }
     ],
     title: (ctx) => `Water quality unsafe — ${ctx.plantName || "plant"}`,
     description: (ctx) =>

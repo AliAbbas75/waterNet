@@ -30,7 +30,18 @@ async function buildPlantStatus(plant) {
   const anyAvailable = states.some(
     (s) => s.deviceId && s.deviceId.availability === "AVAILABLE"
   );
-  return { plant, overall, states, available: anyAvailable };
+  // The advisory is surfaced separately from availability. A plant can be open
+  // and its water still unsafe — that gap is exactly when the public most needs
+  // telling, and collapsing the two would hide it.
+  return {
+    plant,
+    overall,
+    states,
+    available: anyAvailable,
+    advisory: plant.advisory?.active
+      ? { active: true, since: plant.advisory.since, reason: plant.advisory.reason }
+      : { active: false }
+  };
 }
 
 exports.listNearby = async (req, res, next) => {

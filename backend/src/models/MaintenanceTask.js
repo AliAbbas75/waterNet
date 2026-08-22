@@ -79,6 +79,18 @@ const maintenanceTaskSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed, // e.g., { type, id }
       default: null
     },
+    // A condition that returns after its ticket closed gets a NEW ticket rather
+    // than reopening the old one: each response stays cleanly auditable, and
+    // the chain makes a recurring fault visible as a pattern.
+    previousTicketId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'MaintenanceTask',
+      default: null
+    },
+    recurrenceCount: {
+      type: Number,
+      default: 0
+    },
     resolvedAt: {
       type: Date,
       default: null
@@ -97,6 +109,9 @@ const maintenanceTaskSchema = new mongoose.Schema(
     // the safety workflow.
     checklist: [{
       label: { type: String, required: true },
+      // Side effect applied when this item is completed. CLOSE_PLANT is how a
+      // maintainer's physical act reaches operationalStatus.
+      effect: { type: String, enum: ['CLOSE_PLANT'], default: null },
       done: { type: Boolean, default: false },
       completedByUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
       completedAt: { type: Date, default: null }

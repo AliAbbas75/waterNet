@@ -6,6 +6,8 @@ const mongoose = require("mongoose");
 const { emit: socketEmit } = require("../services/socket.service");
 const { checkLowStock } = require("../services/inventory.service");
 const { logAudit } = require("../services/audit.service");
+const { clearAdvisory } = require("../services/alert.service");
+const Plant = require("../models/Plant");
 
 // Admin: Create task
 exports.createTask = async (req, res, next) => {
@@ -293,6 +295,78 @@ exports.getLogs = async (req, res, next) => {
 };
 
 // Resolve task
+// Maintainer: tick off a required step. This is where physical work reaches
+// the record — completing the CLOSE_PLANT item is what sets the plant closed.
+// The system never flips operationalStatus on its own, because a plant is
+// closed by someone going there and closing it.
+exports.completeChecklistItem = async (req, res, next) => {
+  try {
+    const { index, done = true } = req.body;
+
+    const task = await MaintenanceTask.findOne({
+      _id: req.params.id,
+      assignedToUserId: req.user._id,
+      status: { $in: ['ASSIGNED', 'IN_PROGRESS', 'BLOCKED'] }
+    });
+    if (!task) return res.status(404).json({ error: 'Task not found or not yours' });
+
+    const item = task.checklist?.[index];
+    if (!item) return res.status(400).json({ error: 'Checklist item not found' });
+
+    item.done = !!done;
+    item.completedByUserId = done ? req.user._id : null;
+    item.completedAt = done ? new Date() : null;
+    await task.save();
+
+    let plantClosed = false;
+    if (done && item.effect === 'CLOSE_PLANT' && task.plantId) {
+      const plant = await Plant.findById(task.plantId);
+      if (plant && plant.operationalStatus !== 'CLOSED') {
+        const from = plant.operationalStatus;
+        plant.operationalStatus = 'CLOSED';
+        await plant.save();
+        plantClosed = true;
+
+        await logAudit({
+          event: 'plant.closed_by_ticket',
+          req,
+          actorUserId: req.user._id,
+          targetType: 'PLANT',
+          targetId: plant._id,
+          meta: { from, to: 'CLOSED', ticketId: String(task._id), reason: task.title }
+        });
+        socketEmit("plant:availability", {
+          plantId: plant._id,
+          plantName: plant.name,
+          operationalStatus: 'CLOSED',
+          available: false
+        });
+      }
+    }
+
+    await MaintenanceLog.create({
+      taskId: task._id,
+      authorUserId: req.user._id,
+      note: `${done ? 'Completed' : 'Reopened'}: ${item.label}`,
+      structuredFields: { type: 'CHECKLIST', index, effect: item.effect || null, plantClosed }
+    });
+
+    await logAudit({
+      event: done ? 'ticket.checklist_item_completed' : 'ticket.checklist_item_reopened',
+      req,
+      actorUserId: req.user._id,
+      targetType: 'TASK',
+      targetId: task._id,
+      meta: { label: item.label, effect: item.effect || null, plantClosed }
+    });
+
+    socketEmit("task:updated", { task });
+    res.json({ task, plantClosed });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.resolveTask = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -309,6 +383,22 @@ exports.resolveTask = async (req, res, next) => {
     if (!task) {
       await session.abortTransaction();
       return res.status(404).json({ error: 'Task not found or cannot resolve' });
+    }
+
+    // Safety-critical work carries required steps. Closing the ticket without
+    // them would record that the incident was handled when it was not.
+    const outstanding = (task.checklist || []).filter((c) => !c.done);
+    if (outstanding.length) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        error: 'Checklist incomplete',
+        outstanding: outstanding.map((c) => c.label)
+      });
+    }
+
+    if (!resolutionSummary || !String(resolutionSummary).trim()) {
+      await session.abortTransaction();
+      return res.status(400).json({ error: 'resolutionSummary is required' });
     }
 
     // Decrement inventory if materials provided
@@ -350,6 +440,16 @@ exports.resolveTask = async (req, res, next) => {
     }
 
     await task.populate(['assignedToUserId', 'assignedByUserId', 'plantId', 'deviceId', 'resolvedByUserId']);
+
+    // The incident is closed out, so the public advisory can be lifted. The
+    // plant is deliberately NOT reopened here — putting a water plant back into
+    // service is a decision someone makes, not a side effect of paperwork.
+    if (task.plantId) {
+      await clearAdvisory(task.plantId, {
+        actorUserId: req.user._id,
+        reason: `ticket ${task._id} resolved`
+      });
+    }
 
     socketEmit("task:updated", { task });
     res.json({ task });

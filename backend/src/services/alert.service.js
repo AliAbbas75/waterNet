@@ -1,5 +1,6 @@
 const Alert = require("../models/Alert");
 const MaintenanceTask = require("../models/MaintenanceTask");
+const Plant = require("../models/Plant");
 const { severityFor, ticketForAlert } = require("./alert.policy");
 const { logAudit } = require("./audit.service");
 const { emit: socketEmit } = require("./socket.service");
@@ -87,6 +88,7 @@ async function raiseAlert({
   socketEmit("alert:new", { alert });
 
   const ticket = await openTicketForAlert(alert, context);
+  await setAdvisory(alert, context);
 
   if (notify) {
     notifyAdminsOfAlert(alert).catch((err) =>
@@ -111,9 +113,27 @@ async function openTicketForAlert(alert, context = {}) {
 
   const { checklist, ...fields } = spec;
 
+  // A condition returning after its ticket closed gets a new ticket linked to
+  // the last one, rather than reopening it. Each response stays cleanly
+  // auditable and the chain makes a recurring fault visible as a pattern.
+  const previous = await MaintenanceTask.findOne({
+    "externalRef.type": "ALERT",
+    plantId: alert.plantId || null,
+    deviceId: alert.deviceId || null,
+    severity: fields.severity,
+    status: { $in: ["RESOLVED", "CANCELLED"] }
+  })
+    .sort({ createdAt: -1 })
+    .select("_id recurrenceCount")
+    .lean();
+
   const task = await MaintenanceTask.create({
     ...fields,
-    checklist: (checklist || []).map((label) => ({ label, done: false }))
+    previousTicketId: previous?._id || null,
+    recurrenceCount: previous ? (previous.recurrenceCount || 0) + 1 : 0,
+    checklist: (checklist || []).map((item) =>
+      typeof item === "string" ? { label: item, done: false } : { ...item, done: false }
+    )
   });
 
   await Alert.updateOne({ _id: alert._id }, { ticketId: task._id });
@@ -127,12 +147,70 @@ async function openTicketForAlert(alert, context = {}) {
       raisedByAlert: String(alert._id),
       alertType: alert.type,
       severity: task.severity,
-      triageDueAt: task.triageDueAt
+      triageDueAt: task.triageDueAt,
+      previousTicketId: task.previousTicketId ? String(task.previousTicketId) : null,
+      recurrenceCount: task.recurrenceCount
     }
   });
 
   socketEmit("task:updated", { task });
   return task;
+}
+
+/**
+ * Raises the public advisory for a confirmed quality breach.
+ *
+ * This is the one thing the system does immediately and by itself, because the
+ * public cannot wait for someone to drive to the site. It does NOT touch
+ * operationalStatus — the plant is still physically open, and saying otherwise
+ * would be false. Both facts are true at once and each gets its own field.
+ */
+async function setAdvisory(alert, context = {}) {
+  if (alert.type !== "QUALITY_UNSAFE" || !alert.plantId) return;
+
+  const reason = context.parameters
+    ? `Water quality breach: ${context.parameters}`
+    : "Water quality breach detected";
+
+  await Plant.updateOne(
+    { _id: alert.plantId },
+    { advisory: { active: true, since: new Date(), reason, alertId: alert._id } }
+  );
+
+  await logAudit({
+    event: "plant.advisory_raised",
+    targetType: "PLANT",
+    targetId: alert.plantId,
+    meta: { reason, alertId: String(alert._id) }
+  });
+
+  socketEmit("plant:advisory", {
+    plantId: String(alert.plantId),
+    active: true,
+    reason
+  });
+}
+
+/** Lifts the advisory once the incident behind it is closed out. */
+async function clearAdvisory(plantId, { actorUserId = null, reason = null } = {}) {
+  const plant = await Plant.findById(plantId).select("advisory").lean();
+  if (!plant?.advisory?.active) return false;
+
+  await Plant.updateOne(
+    { _id: plantId },
+    { advisory: { active: false, since: null, reason: null, alertId: null } }
+  );
+
+  await logAudit({
+    event: "plant.advisory_lifted",
+    actorUserId,
+    targetType: "PLANT",
+    targetId: plantId,
+    meta: { reason }
+  });
+
+  socketEmit("plant:advisory", { plantId: String(plantId), active: false, reason: null });
+  return true;
 }
 
 /**
@@ -246,6 +324,8 @@ async function resolveAlert({ alertId, user, req = null, note = null }) {
 module.exports = {
   raiseAlert,
   openTicketForAlert,
+  setAdvisory,
+  clearAdvisory,
   clearAlerts,
   acknowledgeAlert,
   resolveAlert,

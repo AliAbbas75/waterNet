@@ -26,6 +26,13 @@ const waterQualityStateSchema = new mongoose.Schema(
     lastEvaluatedAt: {
       type: Date,
       required: true
+    },
+    // A single reading out of range is noise — a sensor glitch, a bubble past
+    // the probe. A breach must persist across consecutive evaluations before it
+    // closes a plant, so this counts the run rather than trusting one sample.
+    consecutiveUnsafe: {
+      type: Number,
+      default: 0
     }
   },
   { timestamps: true }
