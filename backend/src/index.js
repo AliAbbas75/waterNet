@@ -24,6 +24,15 @@ const reportRoutes = require("./routes/reports.routes");
 
 const app = express();
 
+// Behind nginx every request reaches the backend from the proxy container, so
+// req.ip is the same address for all users unless express is told to read
+// X-Forwarded-For. rateLimit() buckets on req.ip, so without this the whole
+// deployment shares one bucket and five OTP requests lock everyone out for ten
+// minutes. Only proxies on private networks are trusted: the backend port is
+// published, and a client reaching it directly must not be able to claim any
+// address it likes with a forged header.
+app.set("trust proxy", process.env.TRUST_PROXY || "loopback, uniquelocal");
+
 app.use(requestId);
 app.use(httpLogger);
 

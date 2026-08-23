@@ -93,7 +93,15 @@ exports.createPlant = async (req, res, next) => {
 
 exports.updatePlant = async (req, res, next) => {
   try {
-    const { name, address, geo, operationalStatus, operatingHours, tankCapacityLitres } = req.body;
+    const {
+      name,
+      address,
+      geo,
+      operationalStatus,
+      operatingHours,
+      tankCapacityLitres,
+      qualityDeviceId
+    } = req.body;
     const statusReason = typeof req.body.statusReason === 'string' ? req.body.statusReason.trim() : '';
 
     const previous = await Plant.findById(req.params.id);
@@ -119,6 +127,8 @@ exports.updatePlant = async (req, res, next) => {
       if (qualityDevice.status !== 'INSTALLED') {
         return res.status(400).json({ error: 'Quality device must be installed' });
       }
+    }
+
     const statusChanging = operationalStatus && operationalStatus !== previous.operationalStatus;
 
     // Manual status changes stay available — planned maintenance is a
