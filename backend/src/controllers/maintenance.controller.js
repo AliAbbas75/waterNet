@@ -124,7 +124,21 @@ exports.assignTask = async (req, res, next) => {
 // Admin: Get all tasks
 exports.getTasks = async (req, res, next) => {
   try {
-    const { status, phase, plantId, deviceId } = req.query;
+    const {
+      status,
+      phase,
+      plantId,
+      deviceId,
+      severity,
+      assignedToUserId,
+      origin,
+      search,
+      attention,
+      sort = 'urgent',
+      page,
+      limit
+    } = req.query;
+
     let query = {};
 
     // A phase covers several statuses, so it is resolved here rather than each
@@ -138,15 +152,94 @@ exports.getTasks = async (req, res, next) => {
     }
     if (plantId) query.plantId = plantId;
     if (deviceId) query.deviceId = deviceId;
+    if (severity) query.severity = severity;
+    if (origin) query.origin = origin;
+    if (assignedToUserId) {
+      query.assignedToUserId = assignedToUserId === 'none' ? null : assignedToUserId;
+    }
+    if (search) {
+      const rx = new RegExp(String(search).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      query.$or = [{ title: rx }, { description: rx }, { resolutionSummary: rx }];
+    }
 
-    const tasks = await MaintenanceTask.find(query)
-      .populate('assignedToUserId', 'display_name')
-      .populate('assignedByUserId', 'display_name')
-      .populate('plantId', 'name')
-      .populate('deviceId', 'deviceId')
-      .sort({ createdAt: -1 });
+    // The one filter that answers "what should I do next": work nobody owns,
+    // work that stalled, and triage that has blown its deadline.
+    if (attention === 'true') {
+      query.$and = [
+        ...(query.$and || []),
+        {
+          $or: [
+            { status: 'TRIAGE' },
+            { status: 'BLOCKED' },
+            { status: 'TRIAGE', triageDueAt: { $ne: null, $lt: new Date() } }
+          ]
+        }
+      ];
+    }
 
-    res.json({ tasks });
+    const SORTS = {
+      // Severity is stored as a word, so ordering it needs a computed rank —
+      // an alphabetical sort would put CRITICAL after BLOCKED and MAJOR last.
+      urgent: { severityRank: 1, createdAt: 1 },
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+      updated: { updatedAt: -1 }
+    };
+    const sortSpec = SORTS[sort] || SORTS.urgent;
+
+    const pipeline = [
+      { $match: query },
+      {
+        $addFields: {
+          severityRank: {
+            $switch: {
+              branches: [
+                { case: { $eq: ['$severity', 'CRITICAL'] }, then: 0 },
+                { case: { $eq: ['$severity', 'MAJOR'] }, then: 1 },
+                { case: { $eq: ['$severity', 'MINOR'] }, then: 2 }
+              ],
+              default: 3
+            }
+          }
+        }
+      },
+      { $sort: sortSpec }
+    ];
+
+    // Pagination is opt-in: callers that want the whole set — the plant history
+    // card, the dashboard — keep getting it by not asking for a page.
+    const perPage = limit ? Math.min(200, Math.max(1, parseInt(limit, 10) || 25)) : null;
+    const currentPage = Math.max(1, parseInt(page, 10) || 1);
+
+    const [total, counts, rows] = await Promise.all([
+      MaintenanceTask.countDocuments(query),
+      // Counts for the whole board, not the current page — a tab that says
+      // "Pending 3" when there are 24 is worse than no number at all.
+      MaintenanceTask.aggregate([{ $group: { _id: '$status', n: { $sum: 1 } } }]),
+      MaintenanceTask.aggregate(
+        perPage
+          ? [...pipeline, { $skip: (currentPage - 1) * perPage }, { $limit: perPage }]
+          : pipeline
+      )
+    ]);
+
+    const tasks = await MaintenanceTask.populate(rows, [
+      { path: 'assignedToUserId', select: 'display_name email role' },
+      { path: 'assignedByUserId', select: 'display_name' },
+      { path: 'plantId', select: 'name' },
+      { path: 'deviceId', select: 'deviceId' }
+    ]);
+
+    res.json({
+      tasks,
+      total,
+      page: perPage ? currentPage : 1,
+      pages: perPage ? Math.max(1, Math.ceil(total / perPage)) : 1,
+      counts: counts.reduce((acc, r) => {
+        acc[r._id] = r.n;
+        return acc;
+      }, {})
+    });
   } catch (err) {
     next(err);
   }

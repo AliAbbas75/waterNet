@@ -10,6 +10,7 @@ export function useTasks(filters = {}) {
     const s = getSocket();
     if (!s) return;
     const handler = () => qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["task-board"] });
     s.on("task:updated", handler);
     return () => s.off("task:updated", handler);
   }, [qc]);
@@ -17,6 +18,31 @@ export function useTasks(filters = {}) {
   return useQuery({
     queryKey: ["tasks", filters],
     queryFn: () => api.get("/api/maintenance/tasks", { params: filters }).then((r) => r.tasks)
+  });
+}
+
+/**
+ * The board: the same endpoint as useTasks, but keeping the whole envelope —
+ * total, page count and the per-status counts for the tabs.
+ *
+ * Counts are for the entire board rather than the current page. A tab reading
+ * "Pending 3" when the filter is showing 3 of 24 is worse than no number.
+ */
+export function useTaskBoard(filters = {}) {
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    const s = getSocket();
+    if (!s) return;
+    const handler = () => qc.invalidateQueries({ queryKey: ["task-board"] });
+    s.on("task:updated", handler);
+    return () => s.off("task:updated", handler);
+  }, [qc]);
+
+  return useQuery({
+    queryKey: ["task-board", filters],
+    queryFn: () => api.get("/api/maintenance/tasks", { params: filters }),
+    placeholderData: (prev) => prev
   });
 }
 
@@ -59,6 +85,7 @@ export function useCreateTask() {
     mutationFn: (body) => api.post("/api/maintenance/tasks", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["task-board"] });
       qc.invalidateQueries({ queryKey: ["my-tasks"] });
     }
   });
@@ -70,6 +97,7 @@ export function useAssignTask() {
     mutationFn: ({ id, ...body }) => api.patch(`/api/maintenance/tasks/${id}/assign`, body),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["task-board"] });
       qc.invalidateQueries({ queryKey: ["task", vars.id] });
     }
   });
@@ -82,6 +110,7 @@ export function useStartTask() {
     onSuccess: (_d, id) => {
       qc.invalidateQueries({ queryKey: ["my-tasks"] });
       qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["task-board"] });
       qc.invalidateQueries({ queryKey: ["task", id] });
     }
   });
@@ -100,6 +129,7 @@ export function useCompleteChecklistItem() {
       api.patch(`/api/maintenance/tasks/${id}/checklist`, { index, done }),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["task-board"] });
       qc.invalidateQueries({ queryKey: ["my-tasks"] });
       qc.invalidateQueries({ queryKey: ["task", vars.id] });
       qc.invalidateQueries({ queryKey: ["task-logs", vars.id] });
@@ -116,6 +146,7 @@ export function useSetBlocked() {
       api.patch(`/api/maintenance/tasks/${id}/blocked`, { blocked, reason }),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["task-board"] });
       qc.invalidateQueries({ queryKey: ["my-tasks"] });
       qc.invalidateQueries({ queryKey: ["task", vars.id] });
       qc.invalidateQueries({ queryKey: ["task-logs", vars.id] });
@@ -141,6 +172,7 @@ export function useResolveTask() {
       api.post(`/api/maintenance/tasks/${id}/resolve`, { resolutionSummary, materials }),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["task-board"] });
       qc.invalidateQueries({ queryKey: ["my-tasks"] });
       qc.invalidateQueries({ queryKey: ["task", vars.id] });
       qc.invalidateQueries({ queryKey: ["inventory"] });
