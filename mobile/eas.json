@@ -9,7 +9,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://REPLACE-WITH-YOUR-BACKEND.up.railway.app"
+        "EXPO_PUBLIC_BACKEND_URL": "https://backend-production-3fdc.up.railway.app"
       }
     },
     "production": {
@@ -17,7 +17,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://REPLACE-WITH-YOUR-BACKEND.up.railway.app"
+        "EXPO_PUBLIC_BACKEND_URL": "https://backend-production-3fdc.up.railway.app"
       }
     }
   },
