@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, ClipboardList, Clock, PlayCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardList, Clock, PauseCircle, PlayCircle } from "lucide-react";
 import { PageHeader } from "../../components/ui/PageHeader.jsx";
 import { Card } from "../../components/ui/Card.jsx";
-import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
+import { TaskStatusTag, taskPhase } from "../../components/ui/TaskStatus.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { Button } from "../../components/ui/Button.jsx";
@@ -20,9 +20,20 @@ export default function MyTasksPage() {
   const startTask = useStartTask();
 
   const groups = useMemo(() => {
-    const out = { ASSIGNED: [], IN_PROGRESS: [], RESOLVED: [] };
+    const out = { ASSIGNED: [], IN_PROGRESS: [], BLOCKED: [], RESOLVED: [], CANCELLED: [] };
     (tasks.data || []).forEach((t) => {
       if (out[t.status]) out[t.status].push(t);
+    });
+    return out;
+  }, [tasks.data]);
+
+  // Headline counts are by phase, so a held-up job still counts as work in
+  // hand rather than falling out of the numbers entirely.
+  const counts = useMemo(() => {
+    const out = { PENDING: 0, IN_PROGRESS: 0, COMPLETED: 0 };
+    (tasks.data || []).forEach((t) => {
+      const phase = taskPhase(t.status);
+      if (out[phase] !== undefined) out[phase] += 1;
     });
     return out;
   }, [tasks.data]);
@@ -37,19 +48,15 @@ export default function MyTasksPage() {
       />
 
       <section className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
-        <Stat label="Assigned" value={groups.ASSIGNED.length} icon={ClipboardList} accent="brand" />
+        <Stat label="Pending" value={counts.PENDING} icon={ClipboardList} accent="brand" />
         <Stat
           label="In progress"
-          value={groups.IN_PROGRESS.length}
+          value={counts.IN_PROGRESS}
           icon={Clock}
-          accent={groups.IN_PROGRESS.length > 0 ? "warn" : "neutral"}
+          accent={counts.IN_PROGRESS > 0 ? "warn" : "neutral"}
+          trend={groups.BLOCKED.length ? `${groups.BLOCKED.length} held up` : undefined}
         />
-        <Stat
-          label="Resolved"
-          value={groups.RESOLVED.length}
-          icon={CheckCircle2}
-          accent="safe"
-        />
+        <Stat label="Completed" value={counts.COMPLETED} icon={CheckCircle2} accent="safe" />
         <Stat
           label="Urgent alerts"
           value={urgent.length}
@@ -102,8 +109,15 @@ export default function MyTasksPage() {
             highlight
           />
           <TaskGroup
-            title="Recently resolved"
-            description="Last completions"
+            title="Held up"
+            description="Started, then stopped — waiting on parts, access or somebody else"
+            tasks={groups.BLOCKED}
+            icon={PauseCircle}
+            highlight
+          />
+          <TaskGroup
+            title="Recently completed"
+            description="Your last five finished jobs"
             tasks={groups.RESOLVED.slice(0, 5)}
             collapsedByDefault
           />
@@ -113,12 +127,15 @@ export default function MyTasksPage() {
   );
 }
 
-function TaskGroup({ title, description, tasks, startTask, primaryAction, highlight }) {
+function TaskGroup({ title, description, tasks, startTask, primaryAction, highlight, icon: Icon }) {
   if (!tasks.length) return null;
   return (
     <section className="mb-6">
       <div className="mb-3">
-        <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+        <h2 className="text-base font-semibold text-slate-900 inline-flex items-center gap-1.5">
+          {Icon ? <Icon size={15} className="text-slate-400" /> : null}
+          {title}
+        </h2>
         <p className="text-xs text-slate-500">{description}</p>
       </div>
       <div className="space-y-3">
@@ -146,13 +163,20 @@ function TaskCard({ task, startTask, primaryAction, highlight }) {
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-start gap-2 flex-wrap">
-          <Badge variant={statusVariant(task.status)} dot>
-            {task.status.replace("_", " ")}
-          </Badge>
-          <span className="text-xs text-slate-500">Assigned {relTime(task.assignedAt)}</span>
+          <TaskStatusTag status={task.status} blockedReason={task.blockedReason} showDetail={false} />
+          <span className="text-xs text-slate-500">
+            {task.startedAt && !task.resolvedAt
+              ? `Started ${relTime(task.startedAt)}`
+              : `Assigned ${relTime(task.assignedAt)}`}
+          </span>
         </div>
         <h3 className="text-sm font-semibold text-slate-900 mt-1.5 truncate">{task.title}</h3>
         <p className="text-sm text-slate-600 line-clamp-2">{task.description}</p>
+        {task.status === "BLOCKED" && task.blockedReason ? (
+          <p className="mt-1.5 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800 ring-1 ring-inset ring-amber-200">
+            Waiting on: {task.blockedReason}
+          </p>
+        ) : null}
         <p className="text-xs text-slate-500 mt-1.5">
           {task.plantId?.name || "No plant"}
           {task.deviceId?.deviceId ? ` • ${task.deviceId.deviceId}` : ""}

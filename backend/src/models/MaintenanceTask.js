@@ -39,6 +39,16 @@ const maintenanceTaskSchema = new mongoose.Schema(
       enum: ['MANUAL', 'SYSTEM'],
       default: 'MANUAL'
     },
+    // Which role the work belongs to, decided by the alert policy rather than
+    // by whoever happens to be looking at the queue. Field work (a site visit,
+    // a probe swap) is a maintainer's; procurement and restocking is a
+    // manager's. It drives who the assignee picker offers first, so the obvious
+    // choice is the one already under the cursor.
+    ownerRole: {
+      type: String,
+      enum: ['ADMIN', 'MANAGER', 'MAINTAINER'],
+      default: 'MAINTAINER'
+    },
     // Mirrors the severity of the alert that raised this, so the queue can sort
     // and the triage deadline has something to derive from.
     severity: {
@@ -65,6 +75,19 @@ const maintenanceTaskSchema = new mongoose.Schema(
       type: Date,
       default: Date.now
     },
+    // When work actually began, as distinct from when it was handed over. The
+    // gap between assignedAt and startedAt is how long a job sat untouched,
+    // which is the number that shows a queue is too long.
+    startedAt: {
+      type: Date,
+      default: null
+    },
+    // Why a started task stalled. Required to enter BLOCKED, cleared on return,
+    // so "blocked" is never a state without an explanation attached.
+    blockedReason: {
+      type: String,
+      default: null
+    },
     plantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Plant',
@@ -78,6 +101,18 @@ const maintenanceTaskSchema = new mongoose.Schema(
     externalRef: {
       type: mongoose.Schema.Types.Mixed, // e.g., { type, id }
       default: null
+    },
+    // A condition that returns after its ticket closed gets a NEW ticket rather
+    // than reopening the old one: each response stays cleanly auditable, and
+    // the chain makes a recurring fault visible as a pattern.
+    previousTicketId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'MaintenanceTask',
+      default: null
+    },
+    recurrenceCount: {
+      type: Number,
+      default: 0
     },
     resolvedAt: {
       type: Date,
@@ -97,6 +132,9 @@ const maintenanceTaskSchema = new mongoose.Schema(
     // the safety workflow.
     checklist: [{
       label: { type: String, required: true },
+      // Side effect applied when this item is completed. CLOSE_PLANT is how a
+      // maintainer's physical act reaches operationalStatus.
+      effect: { type: String, enum: ['CLOSE_PLANT'], default: null },
       done: { type: Boolean, default: false },
       completedByUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
       completedAt: { type: Date, default: null }

@@ -10,7 +10,9 @@ const {
   startTask,
   addLog,
   getLogs,
-  resolveTask
+  resolveTask,
+  completeChecklistItem,
+  setBlocked
 } = require("../controllers/maintenance.controller");
 
 const router = express.Router();
@@ -19,6 +21,8 @@ const router = express.Router();
 router.get("/mine", requireRole("MAINTAINER"), getMyTasks);
 router.patch("/:id/start", requireRole("MAINTAINER"), startTask);
 router.post("/:id/logs", requireRole("MAINTAINER"), addLog);
+router.patch("/:id/checklist", requireRole("MAINTAINER"), completeChecklistItem);
+router.patch("/:id/blocked", requireRole("MAINTAINER"), setBlocked);
 router.post("/:id/resolve", requireRole("MAINTAINER"), resolveTask);
 
 // Admin routes

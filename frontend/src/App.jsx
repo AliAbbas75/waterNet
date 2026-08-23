@@ -21,11 +21,13 @@ import AdminAlerts from "./pages/admin/AlertsPage.jsx";
 import AdminThresholds from "./pages/admin/ThresholdsPage.jsx";
 import AdminReports from "./pages/admin/ReportsPage.jsx";
 import AdminUsers from "./pages/admin/UsersPage.jsx";
+import AdminAuditLog from "./pages/admin/AuditLogPage.jsx";
 import AdminIssueReports from "./pages/admin/IssueReportsPage.jsx";
 
 import MyTasks from "./pages/maintainer/MyTasksPage.jsx";
 import TaskDetail from "./pages/maintainer/TaskDetailPage.jsx";
 import MaintainerAlerts from "./pages/maintainer/AlertsPage.jsx";
+import MaintainerStock from "./pages/maintainer/StockPage.jsx";
 
 import PublicNearby from "./pages/public/NearbyPage.jsx";
 import PublicPlantDetail from "./pages/public/PlantDetailPage.jsx";
@@ -62,6 +64,7 @@ export default function App() {
         <Route path="thresholds" element={<AdminThresholds />} />
         <Route path="reports" element={<AdminReports />} />
         <Route path="issue-reports" element={<AdminIssueReports />} />
+        <Route path="audit" element={<AdminAuditLog />} />
         {/* Account administration is SUPER_ADMIN only — hiding the nav item is
             not enough, the route itself must refuse a hand-typed URL. */}
         <Route
@@ -87,6 +90,16 @@ export default function App() {
         <Route index element={<MyTasks />} />
         <Route path="tasks/:id" element={<TaskDetail />} />
         <Route path="alerts" element={<MaintainerAlerts />} />
+        {/* Stock is a manager's concern; hiding the nav item is not enough,
+            the route itself must refuse a hand-typed URL. */}
+        <Route
+          path="inventory"
+          element={
+            <RequireRole role="MANAGER">
+              <MaintainerStock />
+            </RequireRole>
+          }
+        />
       </Route>
 
       <Route path="/app" element={<PublicLayout />}>

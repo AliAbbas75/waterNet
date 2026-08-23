@@ -381,8 +381,10 @@ exports.acceptInvite = async (req, res, next) => {
       return res.status(403).json({ ok: false, error: "Invite email mismatch", requestId: req.requestId });
     }
 
+    // Must match the roles createInvite is allowed to issue, or a legitimately
+    // issued invite becomes unredeemable at the last step.
     const targetRole = String(invite.role || "").toUpperCase();
-    if (!targetRole || !["MAINTAINER", "ADMIN"].includes(targetRole)) {
+    if (!targetRole || !["MAINTAINER", "MANAGER", "ADMIN"].includes(targetRole)) {
       return res.status(400).json({ ok: false, error: "Invalid invite role", requestId: req.requestId });
     }
 

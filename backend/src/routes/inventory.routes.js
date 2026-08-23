@@ -10,13 +10,15 @@ const {
 
 const router = express.Router();
 
-// All inventory routes require ADMIN role
-router.use(requireRole('ADMIN'));
+// A manager owns restocking work orders, so they can read the stock levels the
+// work is about. Changing stock — adding items, editing counts, deleting — is
+// still an admin act: reading what is on the shelf and deciding what goes on it
+// are different jobs.
+router.get("/", requireRole('MANAGER'), getInventory);
+router.get("/:id", requireRole('MANAGER'), getInventoryItem);
 
-router.get("/", getInventory);
-router.get("/:id", getInventoryItem);
-router.post("/", createInventoryItem);
-router.put("/:id", updateInventoryItem);
-router.delete("/:id", deleteInventoryItem);
+router.post("/", requireRole('ADMIN'), createInventoryItem);
+router.put("/:id", requireRole('ADMIN'), updateInventoryItem);
+router.delete("/:id", requireRole('ADMIN'), deleteInventoryItem);
 
 module.exports = router;

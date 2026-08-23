@@ -46,10 +46,3 @@ export function useDevUsers(enabled = true) {
     staleTime: 60_000
   });
 }
-
-export function useAuditLogs(params = {}) {
-  return useQuery({
-    queryKey: ["audit-logs", params],
-    queryFn: () => api.get("/api/admin/audit-logs", { params }).then((r) => r.logs)
-  });
-}

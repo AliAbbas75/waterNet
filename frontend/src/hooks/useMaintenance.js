@@ -81,7 +81,23 @@ export function useStartTask() {
     mutationFn: (id) => api.patch(`/api/maintenance/tasks/${id}/start`),
     onSuccess: (_d, id) => {
       qc.invalidateQueries({ queryKey: ["my-tasks"] });
+      qc.invalidateQueries({ queryKey: ["tasks"] });
       qc.invalidateQueries({ queryKey: ["task", id] });
+    }
+  });
+}
+
+/** Park a started task, or bring it back. A reason is required to park it. */
+export function useSetBlocked() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, blocked, reason }) =>
+      api.patch(`/api/maintenance/tasks/${id}/blocked`, { blocked, reason }),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["my-tasks"] });
+      qc.invalidateQueries({ queryKey: ["task", vars.id] });
+      qc.invalidateQueries({ queryKey: ["task-logs", vars.id] });
     }
   });
 }

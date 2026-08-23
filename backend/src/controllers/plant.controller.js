@@ -93,15 +93,8 @@ exports.createPlant = async (req, res, next) => {
 
 exports.updatePlant = async (req, res, next) => {
   try {
-    const {
-      name,
-      address,
-      geo,
-      operationalStatus,
-      operatingHours,
-      tankCapacityLitres,
-      qualityDeviceId
-    } = req.body;
+    const { name, address, geo, operationalStatus, operatingHours, tankCapacityLitres } = req.body;
+    const statusReason = typeof req.body.statusReason === 'string' ? req.body.statusReason.trim() : '';
 
     const previous = await Plant.findById(req.params.id);
     if (!previous) {
@@ -126,6 +119,25 @@ exports.updatePlant = async (req, res, next) => {
       if (qualityDevice.status !== 'INSTALLED') {
         return res.status(400).json({ error: 'Quality device must be installed' });
       }
+    const statusChanging = operationalStatus && operationalStatus !== previous.operationalStatus;
+
+    // Manual status changes stay available — planned maintenance is a
+    // legitimate reason to close a plant with no incident behind it — but every
+    // closure needs an explanation on the record.
+    if (statusChanging && !statusReason) {
+      return res.status(400).json({
+        error: 'statusReason is required when changing operational status'
+      });
+    }
+
+    // Reopening a plant while a water-quality advisory stands would put unsafe
+    // water back into public service. The advisory is lifted by resolving the
+    // incident ticket, not by editing the plant.
+    if (statusChanging && operationalStatus === 'OPERATIONAL' && previous.advisory?.active) {
+      return res.status(409).json({
+        error: 'Cannot reopen: a water quality advisory is active for this plant',
+        advisory: previous.advisory
+      });
     }
 
     const plant = await Plant.findByIdAndUpdate(
@@ -154,7 +166,7 @@ exports.updatePlant = async (req, res, next) => {
         actorUserId: req.user?._id || null,
         targetType: 'PLANT',
         targetId: plant._id,
-        meta: { from: prevStatus, to: newStatus, plantName: plant.name }
+        meta: { from: prevStatus, to: newStatus, plantName: plant.name, reason: statusReason }
       });
 
       if (newStatus === 'OPERATIONAL') {

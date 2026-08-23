@@ -137,11 +137,15 @@ exports.createInvite = async (req, res, next) => {
       return res.status(400).json({ ok: false, error: "Invalid role", requestId: req.requestId });
     }
 
-    if (req.user?.role === "ADMIN" && role !== "MAINTAINER") {
-      return res.status(403).json({ ok: false, error: "ADMIN can only invite MAINTAINER", requestId: req.requestId });
+    if (req.user?.role === "ADMIN" && !["MAINTAINER", "MANAGER"].includes(role)) {
+      return res.status(403).json({
+        ok: false,
+        error: "ADMIN can only invite MAINTAINER or MANAGER",
+        requestId: req.requestId
+      });
     }
 
-    if (req.user?.role === "SUPER_ADMIN" && !["MAINTAINER", "ADMIN"].includes(role)) {
+    if (req.user?.role === "SUPER_ADMIN" && !["MAINTAINER", "MANAGER", "ADMIN"].includes(role)) {
       return res.status(400).json({ ok: false, error: "Invalid role", requestId: req.requestId });
     }
 

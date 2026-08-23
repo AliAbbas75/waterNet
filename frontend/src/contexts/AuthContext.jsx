@@ -98,7 +98,7 @@ export function useAuth() {
 
 export function hasRole(user, ...roles) {
   if (!user) return false;
-  const hierarchy = { PUBLIC: 0, MAINTAINER: 1, ADMIN: 2, SUPER_ADMIN: 3 };
+  const hierarchy = { PUBLIC: 0, MAINTAINER: 1, MANAGER: 2, ADMIN: 3, SUPER_ADMIN: 4 };
   const userLevel = hierarchy[user.role] ?? -1;
   return roles.some((r) => userLevel >= (hierarchy[r] ?? 99));
 }
@@ -108,8 +108,11 @@ export function isAdminRole(role) {
 }
 
 export function homeRouteForRole(role) {
-  if (isAdminRole(role)) return "/admin";
-  if (role === "MAINTAINER") return "/m";
+  // Matched exactly, not by rank: an admin outranks a maintainer but must not
+  // land in the maintainer console, which is a personal work queue rather than
+  // an operations view.
+  if (role === "ADMIN" || role === "SUPER_ADMIN") return "/admin";
+  if (role === "MANAGER" || role === "MAINTAINER") return "/m";
   if (role === "PUBLIC") return "/app";
   return "/login";
 }

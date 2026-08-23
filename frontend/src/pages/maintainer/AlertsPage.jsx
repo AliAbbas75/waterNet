@@ -1,26 +1,25 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, Check, ShieldAlert } from "lucide-react";
+import { Link } from "react-router-dom";
+import { AlertTriangle, ShieldAlert, ClipboardList } from "lucide-react";
 import { PageHeader } from "../../components/ui/PageHeader.jsx";
 import { Card } from "../../components/ui/Card.jsx";
 import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
-import { Button } from "../../components/ui/Button.jsx";
 import { Select } from "../../components/ui/Input.jsx";
-import { useAckAlert, useAlerts } from "../../hooks/useAlerts.js";
+import { useAlerts } from "../../hooks/useAlerts.js";
 import { relTime } from "../../lib/format.js";
 
 export default function MaintainerAlertsPage() {
   const [status, setStatus] = useState("OPEN");
   const filters = useMemo(() => ({ status }), [status]);
   const alerts = useAlerts(filters);
-  const ack = useAckAlert();
 
   return (
     <>
       <PageHeader
         title="Alerts"
-        description="Open issues across the network. Acknowledge what you'll handle."
+        description="The alerts behind the work you have been given. Each one is answered by finishing its work order."
         action={<ShieldAlert size={20} className="text-slate-400" />}
       />
 
@@ -28,7 +27,7 @@ export default function MaintainerAlertsPage() {
         <Select value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All statuses</option>
           <option value="OPEN">Open</option>
-          <option value="ACK">Acknowledged</option>
+          <option value="ACK">Being handled</option>
           <option value="RESOLVED">Resolved</option>
         </Select>
       </Card>
@@ -72,17 +71,21 @@ export default function MaintainerAlertsPage() {
                   {[a.plantId?.name, a.deviceId?.deviceId].filter(Boolean).join(" • ")}
                 </p>
               </div>
-              {a.status === "OPEN" ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  leftIcon={<Check size={14} />}
-                  onClick={() => ack.mutate(a._id)}
-                  loading={ack.isPending && ack.variables === a._id}
-                >
-                  Acknowledge
-                </Button>
-              ) : null}
+              <div className="flex flex-col items-end gap-1.5 shrink-0">
+                {/* The alert is the symptom; the work order is what they act on
+                    and what closes this when it is resolved. There is nothing
+                    else to click here — an alert is finished by finishing the
+                    job, not by marking it seen. */}
+                {a.ticketId ? (
+                  <Link
+                    to={`/m/tasks/${a.ticketId._id || a.ticketId}`}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 hover:underline"
+                  >
+                    <ClipboardList size={13} />
+                    Open work order
+                  </Link>
+                ) : null}
+              </div>
             </li>
           ))}
         </ul>

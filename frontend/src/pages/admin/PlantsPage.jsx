@@ -177,6 +177,10 @@ function PlantFormModal({ open, plant, onClose }) {
   // Re-init when target changes.
   useMemo(() => setForm(initForm(plant)), [plant, open]);
 
+  const statusChanged = isEdit
+    ? form.operationalStatus !== plant?.operationalStatus
+    : form.operationalStatus !== "OPERATIONAL";
+
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
@@ -186,7 +190,8 @@ function PlantFormModal({ open, plant, onClose }) {
       geo: { lat: Number(form.lat), lng: Number(form.lng) },
       operationalStatus: form.operationalStatus,
       operatingHours: form.operatingHours.trim() || null,
-      tankCapacityLitres: Number(form.tankCapacityLitres)
+      tankCapacityLitres: Number(form.tankCapacityLitres),
+      ...(statusChanged ? { statusReason: form.statusReason.trim() } : {})
     };
     if (!body.name || !body.address || !Number.isFinite(body.geo.lat) || !Number.isFinite(body.geo.lng)) {
       setError("Name, address, and geo coordinates are required.");
@@ -194,6 +199,10 @@ function PlantFormModal({ open, plant, onClose }) {
     }
     if (!Number.isFinite(body.tankCapacityLitres) || body.tankCapacityLitres <= 0) {
       setError("Tank capacity must be a positive number of litres.");
+      return;
+    }
+    if (statusChanged && !body.statusReason) {
+      setError("Give a reason for the status change — it goes on the plant's record.");
       return;
     }
     try {
@@ -277,6 +286,19 @@ function PlantFormModal({ open, plant, onClose }) {
             />
           </Field>
         </div>
+        {statusChanged ? (
+          <Field
+            label="Reason for status change"
+            required
+            hint="(recorded on the plant's audit trail)"
+          >
+            <Input
+              value={form.statusReason}
+              onChange={(e) => setForm({ ...form, statusReason: e.target.value })}
+              placeholder="e.g. scheduled filter replacement"
+            />
+          </Field>
+        ) : null}
         <Field label="Tank capacity" hint="(litres — daily consumption draws down against this)">
           <Input
             type="number"
@@ -301,7 +323,8 @@ function initForm(plant) {
     lng: plant?.geo?.lng ?? "",
     operationalStatus: plant?.operationalStatus || "OPERATIONAL",
     operatingHours: plant?.operatingHours || "",
-    tankCapacityLitres: plant?.tankCapacityLitres ?? 1000
+    tankCapacityLitres: plant?.tankCapacityLitres ?? 1000,
+    statusReason: ""
   };
 }
 

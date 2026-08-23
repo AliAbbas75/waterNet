@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Cpu,
   PlayCircle,
+  PauseCircle,
   Plus,
   Send,
   Trash2,
@@ -14,6 +15,7 @@ import {
 import { PageHeader } from "../../components/ui/PageHeader.jsx";
 import { Card, CardHeader } from "../../components/ui/Card.jsx";
 import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
+import { TaskStatusTag } from "../../components/ui/TaskStatus.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { Button } from "../../components/ui/Button.jsx";
@@ -23,6 +25,7 @@ import { Avatar } from "../../components/ui/Avatar.jsx";
 import {
   useAddTaskLog,
   useResolveTask,
+  useSetBlocked,
   useStartTask,
   useTask,
   useTaskLogs
@@ -36,7 +39,9 @@ export default function TaskDetailPage() {
   const logs = useTaskLogs(id);
   const addLog = useAddTaskLog();
   const startTask = useStartTask();
+  const setBlocked = useSetBlocked();
   const [resolveOpen, setResolveOpen] = useState(false);
+  const [blockOpen, setBlockOpen] = useState(false);
   const [logNote, setLogNote] = useState("");
 
   const sortedLogs = useMemo(
@@ -85,12 +90,20 @@ export default function TaskDetailPage() {
         description={t.description}
         action={
           <div className="flex items-center gap-2">
-            <Badge variant={statusVariant(t.status)} dot>
-              {t.status.replace("_", " ")}
-            </Badge>
+            <TaskStatusTag status={t.status} blockedReason={t.blockedReason} />
           </div>
         }
       />
+
+      {t.status === "BLOCKED" && t.blockedReason ? (
+        <div className="mb-4 flex items-start gap-3 rounded-xl bg-amber-50 px-4 py-3 ring-1 ring-inset ring-amber-200">
+          <PauseCircle size={16} className="mt-0.5 shrink-0 text-amber-600" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-amber-900">Held up</p>
+            <p className="text-sm text-amber-800">{t.blockedReason}</p>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         <div className="lg:col-span-2 space-y-4 sm:space-y-6">
@@ -106,12 +119,30 @@ export default function TaskDetailPage() {
                 </Button>
               ) : null}
               {t.status === "IN_PROGRESS" ? (
+                <>
+                  <Button
+                    variant="success"
+                    leftIcon={<CheckCheck size={16} />}
+                    onClick={() => setResolveOpen(true)}
+                  >
+                    Mark resolved
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    leftIcon={<PauseCircle size={16} />}
+                    onClick={() => setBlockOpen(true)}
+                  >
+                    Waiting on something
+                  </Button>
+                </>
+              ) : null}
+              {t.status === "BLOCKED" ? (
                 <Button
-                  variant="success"
-                  leftIcon={<CheckCheck size={16} />}
-                  onClick={() => setResolveOpen(true)}
+                  leftIcon={<PlayCircle size={16} />}
+                  onClick={() => setBlocked.mutate({ id: t._id, blocked: false })}
+                  loading={setBlocked.isPending}
                 >
-                  Mark resolved
+                  Back on this
                 </Button>
               ) : null}
               {t.status === "RESOLVED" ? (
@@ -230,7 +261,69 @@ export default function TaskDetailPage() {
       </div>
 
       <ResolveModal taskId={t._id} open={resolveOpen} onClose={() => setResolveOpen(false)} />
+      <BlockModal
+        open={blockOpen}
+        onClose={() => setBlockOpen(false)}
+        loading={setBlocked.isPending}
+        onConfirm={async (reason) => {
+          await setBlocked.mutateAsync({ id: t._id, blocked: true, reason });
+          setBlockOpen(false);
+        }}
+      />
     </>
+  );
+}
+
+/**
+ * Parking a task costs a sentence. A queue full of tasks that stopped for no
+ * recorded reason is the thing nobody can chase, so the reason is required
+ * here and again on the server.
+ */
+function BlockModal({ open, onClose, onConfirm, loading }) {
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setReason("");
+    setError("");
+  }, [open]);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="What's holding this up?"
+      subtitle="The task stays yours and stays open — this records why it stopped."
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            loading={loading}
+            onClick={() => {
+              if (!reason.trim()) {
+                setError("Say what you are waiting on so somebody can chase it.");
+                return;
+              }
+              onConfirm(reason.trim());
+            }}
+          >
+            Mark as held up
+          </Button>
+        </>
+      }
+    >
+      <Field label="Reason" required>
+        <Textarea
+          rows={3}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="e.g. waiting on the replacement membrane, supplier says Thursday"
+        />
+      </Field>
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+    </Modal>
   );
 }
 

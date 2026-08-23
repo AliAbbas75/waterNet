@@ -6,6 +6,14 @@ const Device = require("../models/Device");
 const mongoose = require("mongoose");
 const { raiseAlert, clearAlerts } = require("../services/alert.service");
 
+// Consecutive out-of-range evaluations required before a breach is believed.
+// Tunable because the right number depends on sampling rate: at a 3-second
+// cadence three readings is nine seconds, at 30 minutes it is an hour and a half.
+function unsafeRunRequired() {
+  const raw = Number(process.env.QUALITY_UNSAFE_CONSECUTIVE);
+  return Number.isFinite(raw) && raw > 0 ? raw : 3;
+}
+
 // Evaluate water quality for a plant/device
 async function evaluateQuality(plantId, deviceRef, deviceKey) {
   // Get latest telemetry
@@ -61,18 +69,25 @@ async function evaluateQuality(plantId, deviceRef, deviceKey) {
     let category = 'SAFE';
     let threshold = 'safe';
 
+    // The bands are nested: safe sits inside warn, warn inside unsafe. So the
+    // question is which band the value has escaped, and it must be asked from
+    // the inside out.
+    //
+    // This was previously inverted — "beyond the warn bounds" returned WARNING,
+    // and because any value outside the unsafe band is also outside the warn
+    // band, the UNSAFE branch was unreachable. No reading in this database has
+    // ever been classified UNSAFE, however contaminated.
     if (value < config.safeMin || value > config.safeMax) {
-      if ((config.warnMin !== null && value < config.warnMin) ||
-          (config.warnMax !== null && value > config.warnMax)) {
+      const withinWarnBand =
+        (config.warnMin === null || value >= config.warnMin) &&
+        (config.warnMax === null || value <= config.warnMax);
+
+      if (withinWarnBand) {
         category = 'WARNING';
         threshold = 'warn';
-      } else if ((config.unsafeMin !== null && value < config.unsafeMin) ||
-                 (config.unsafeMax !== null && value > config.unsafeMax)) {
+      } else {
         category = 'UNSAFE';
         threshold = 'unsafe';
-      } else {
-        category = 'WARNING'; // between safe and warn
-        threshold = 'warn';
       }
     }
 
@@ -88,16 +103,34 @@ async function evaluateQuality(plantId, deviceRef, deviceKey) {
     });
   }
 
-  // Save state
+  // A breach must persist before it is believed. One reading out of range is a
+  // bubble past the probe or a sensor glitch; acting on it would close a public
+  // water plant on noise. Only a sustained run raises the alert.
+  const previousState = await WaterQualityState.findOne({ plantId, deviceId: deviceRef }).lean();
+  const consecutiveUnsafe =
+    overallCategory === 'UNSAFE' ? (previousState?.consecutiveUnsafe || 0) + 1 : 0;
+
   await WaterQualityState.findOneAndUpdate(
     { plantId, deviceId: deviceRef },
     {
       category: overallCategory,
       reasons,
-      lastEvaluatedAt: new Date()
+      lastEvaluatedAt: new Date(),
+      consecutiveUnsafe
     },
     { upsert: true }
   );
+
+  const sustained = consecutiveUnsafe >= unsafeRunRequired();
+
+  if (overallCategory === 'UNSAFE' && !sustained) {
+    // Breaching but not yet confirmed. Recorded in the state so the UI can show
+    // it building, deliberately not alerted on.
+    console.log(
+      `Quality breach ${consecutiveUnsafe}/${unsafeRunRequired()} at plant ${plantId} — not yet sustained`
+    );
+    return overallCategory;
+  }
 
   if (overallCategory === 'UNSAFE') {
     const breached = reasons.filter((r) => r.threshold !== 'safe').map((r) => r.parameter);

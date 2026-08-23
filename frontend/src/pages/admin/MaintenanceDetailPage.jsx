@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRightLeft, Building2, Cpu, MessageCircle } from "lucide
 import { PageHeader } from "../../components/ui/PageHeader.jsx";
 import { Card, CardHeader } from "../../components/ui/Card.jsx";
 import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
+import { TaskStatusTag } from "../../components/ui/TaskStatus.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { Button } from "../../components/ui/Button.jsx";
@@ -77,9 +78,7 @@ export default function MaintenanceDetailPage() {
         description={t.description}
         action={
           <div className="flex items-center gap-2">
-            <Badge variant={statusVariant(t.status)} dot>
-              {t.status.replace("_", " ")}
-            </Badge>
+            <TaskStatusTag status={t.status} blockedReason={t.blockedReason} />
             <Button variant="secondary" leftIcon={<ArrowRightLeft size={14} />} onClick={() => setAssignOpen(true)}>
               Reassign
             </Button>
@@ -228,7 +227,7 @@ export default function MaintenanceDetailPage() {
         open={assignOpen}
         task={t}
         logs={sortedLogs}
-        users={(users.data || []).filter((u) => ["MAINTAINER", "ADMIN"].includes(u.role))}
+        users={(users.data || []).filter((u) => ["MAINTAINER", "MANAGER", "ADMIN"].includes(u.role))}
         onClose={() => setAssignOpen(false)}
         onConfirm={async ({ assignedToUserId, handoffLogId, handoffNote }) => {
           await assign.mutateAsync({ id, assignedToUserId, handoffLogId, handoffNote });

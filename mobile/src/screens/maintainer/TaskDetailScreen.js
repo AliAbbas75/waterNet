@@ -22,12 +22,14 @@ import { useInventory } from "../../hooks/useInventory.js";
 import {
   useAddTaskLog,
   useResolveTask,
+  useSetBlocked,
   useStartTask,
   useTask,
   useTaskLogs
 } from "../../hooks/useMaintenance.js";
 import { fmtDate, relTime } from "../../lib/format.js";
 import { colors, font, radii, spacing } from "../../lib/theme.js";
+import { taskStatusMeta } from "../../lib/taskStatus.js";
 
 export default function TaskDetailScreen() {
   const { id } = useRoute().params || {};
@@ -35,8 +37,11 @@ export default function TaskDetailScreen() {
   const logs = useTaskLogs(id);
   const start = useStartTask();
   const addLog = useAddTaskLog();
+  const setBlocked = useSetBlocked();
   const [logNote, setLogNote] = useState("");
   const [resolveOpen, setResolveOpen] = useState(false);
+  const [blockOpen, setBlockOpen] = useState(false);
+  const [blockReason, setBlockReason] = useState("");
 
   const sortedLogs = useMemo(
     () => (logs.data || []).slice().sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)),
@@ -70,8 +75,12 @@ export default function TaskDetailScreen() {
     <ScrollView style={styles.screen} contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}>
       <Card>
         <View style={styles.headerRow}>
-          <Badge status={t.status}>{t.status.replace("_", " ")}</Badge>
-          <Text style={styles.smallTime}>Assigned {relTime(t.assignedAt)}</Text>
+          <Badge status={taskStatusMeta(t.status).tone}>{taskStatusMeta(t.status).label}</Badge>
+          <Text style={styles.smallTime}>
+            {t.startedAt && !t.resolvedAt
+              ? `Started ${relTime(t.startedAt)}`
+              : `Assigned ${relTime(t.assignedAt)}`}
+          </Text>
         </View>
         <Text style={styles.title}>{t.title}</Text>
         <Text style={styles.description}>{t.description}</Text>
@@ -87,13 +96,42 @@ export default function TaskDetailScreen() {
             </Button>
           ) : null}
           {t.status === "IN_PROGRESS" ? (
-            <Button
-              variant="success"
-              leftIcon={<Ionicons name="checkmark-done" size={16} color="#fff" />}
-              onPress={() => setResolveOpen(true)}
-            >
-              Mark resolved
-            </Button>
+            <>
+              <Button
+                variant="success"
+                leftIcon={<Ionicons name="checkmark-done" size={16} color="#fff" />}
+                onPress={() => setResolveOpen(true)}
+              >
+                Mark resolved
+              </Button>
+              <Button
+                variant="secondary"
+                leftIcon={<Ionicons name="pause" size={16} color={colors.text} />}
+                onPress={() => {
+                  setBlockReason("");
+                  setBlockOpen(true);
+                }}
+              >
+                Waiting on something
+              </Button>
+            </>
+          ) : null}
+          {t.status === "BLOCKED" ? (
+            <>
+              {t.blockedReason ? (
+                <View style={styles.blockedBanner}>
+                  <Ionicons name="pause-circle" size={18} color={colors.warn} />
+                  <Text style={{ color: colors.warn, flex: 1 }}>{t.blockedReason}</Text>
+                </View>
+              ) : null}
+              <Button
+                leftIcon={<Ionicons name="play" size={16} color="#fff" />}
+                loading={setBlocked.isPending}
+                onPress={() => setBlocked.mutate({ id: t._id, blocked: false })}
+              >
+                Back on this
+              </Button>
+            </>
           ) : null}
           {t.status === "RESOLVED" ? (
             <View style={styles.resolvedBanner}>
@@ -192,6 +230,50 @@ export default function TaskDetailScreen() {
         open={resolveOpen}
         onClose={() => setResolveOpen(false)}
       />
+
+      {/* Parking a task costs a sentence. A queue full of jobs that stopped for
+          no recorded reason is the thing nobody can chase. */}
+      <Modal visible={blockOpen} animationType="slide" transparent onRequestClose={() => setBlockOpen(false)}>
+        <View style={styles.sheetBackdrop}>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>What's holding this up?</Text>
+            <Text style={styles.sheetSub}>
+              The task stays yours and stays open — this records why it stopped.
+            </Text>
+            <Field label="Reason">
+              <Input
+                value={blockReason}
+                onChangeText={setBlockReason}
+                placeholder="e.g. waiting on the replacement membrane"
+                multiline
+              />
+            </Field>
+            <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
+              <Button
+                disabled={!blockReason.trim()}
+                loading={setBlocked.isPending}
+                onPress={async () => {
+                  try {
+                    await setBlocked.mutateAsync({
+                      id: t._id,
+                      blocked: true,
+                      reason: blockReason.trim()
+                    });
+                    setBlockOpen(false);
+                  } catch (err) {
+                    RNAlert.alert("Couldn't update", err.message || "Try again.");
+                  }
+                }}
+              >
+                Mark as held up
+              </Button>
+              <Button variant="ghost" onPress={() => setBlockOpen(false)}>
+                Cancel
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -369,6 +451,32 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     borderRadius: radii.lg,
     backgroundColor: colors.safeBg
+  },
+  blockedBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    padding: spacing.sm,
+    borderRadius: radii.lg,
+    backgroundColor: colors.warnBg
+  },
+  sheetBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(15, 23, 42, 0.45)"
+  },
+  sheet: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: radii.xl,
+    borderTopRightRadius: radii.xl,
+    padding: spacing.lg
+  },
+  sheetTitle: { fontSize: font.sizes.lg, fontWeight: "700", color: colors.text },
+  sheetSub: {
+    fontSize: font.sizes.sm,
+    color: colors.textMuted,
+    marginTop: 4,
+    marginBottom: spacing.md
   },
   infoRow: {
     flexDirection: "row",

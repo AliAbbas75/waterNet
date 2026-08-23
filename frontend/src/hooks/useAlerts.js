@@ -11,7 +11,15 @@ export function useAlerts(filters = {}) {
     if (!s) return;
     const handler = () => qc.invalidateQueries({ queryKey: ["alerts"] });
     s.on("alert:new", handler);
-    return () => s.off("alert:new", handler);
+    // An alert row carries its work order, so a ticket moving — assigned,
+    // resolved, cancelled — changes the row even when the alert itself did not.
+    s.on("alert:updated", handler);
+    s.on("task:updated", handler);
+    return () => {
+      s.off("alert:new", handler);
+      s.off("alert:updated", handler);
+      s.off("task:updated", handler);
+    };
   }, [qc]);
 
   return useQuery({
@@ -20,18 +28,30 @@ export function useAlerts(filters = {}) {
   });
 }
 
-export function useAckAlert() {
+// Assigning and closing both move work between queues, so each invalidates the
+// task lists too — otherwise the maintenance board keeps showing a ticket that
+// has just been routed somewhere else.
+function invalidateAlertsAndWork(qc) {
+  qc.invalidateQueries({ queryKey: ["alerts"] });
+  qc.invalidateQueries({ queryKey: ["tasks"] });
+  qc.invalidateQueries({ queryKey: ["my-tasks"] });
+}
+
+export function useDispatchAlert() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id) => api.patch(`/api/alerts/${id}/ack`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["alerts"] })
+    mutationFn: ({ id, assignedToUserId, note }) =>
+      api.patch(`/api/alerts/${id}/dispatch`, { assignedToUserId, note }),
+    onSuccess: () => invalidateAlertsAndWork(qc)
   });
 }
 
 export function useResolveAlert() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id) => api.patch(`/api/alerts/${id}/resolve`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["alerts"] })
+    // Closing without dispatch. A reason is required at the call site: closing
+    // an alert with no record of why is the behaviour this revamp exists to remove.
+    mutationFn: ({ id, note }) => api.patch(`/api/alerts/${id}/resolve`, { note }),
+    onSuccess: () => invalidateAlertsAndWork(qc)
   });
 }

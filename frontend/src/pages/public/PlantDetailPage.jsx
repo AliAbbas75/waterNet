@@ -32,7 +32,11 @@ export default function PublicPlantDetailPage() {
       }
     };
     s.on("plant:availability", handler);
-    return () => s.off("plant:availability", handler);
+    s.on("plant:advisory", handler);
+    return () => {
+      s.off("plant:availability", handler);
+      s.off("plant:advisory", handler);
+    };
   }, [id, qc]);
   const navigate = useNavigate();
   const status = usePublicPlantStatus(id);
@@ -62,6 +66,7 @@ export default function PublicPlantDetailPage() {
   }
 
   const { plant, overall, available, devices, readings } = status.data;
+  const advisory = status.data.advisory?.active ? status.data.advisory : null;
 
   // Aggregate latest readings across devices.
   const latest = aggregateLatest(readings);
@@ -72,6 +77,18 @@ export default function PublicPlantDetailPage() {
       <Link to="/app" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 mb-3">
         <ArrowLeft size={14} /> Nearby
       </Link>
+
+      {advisory ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+        >
+          <p className="font-semibold">Do not drink — water quality advisory in effect</p>
+          <p className="mt-0.5">
+            {advisory.reason}. The plant may still be open while this is being dealt with.
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
         <div className="min-w-0">

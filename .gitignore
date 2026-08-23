@@ -57,11 +57,17 @@ __MACOSX/
 # Besu node runtime state. RocksDB is a live database, not a build artifact:
 # committing it produces snapshots that are corrupt on restore, and a stray
 # `git clean`/`git restore` over these paths destroys a working chain.
-# `data/key` is deliberately NOT ignored — it is the QBFT validator identity
-# hard-coded into genesis.json's extraData; lose it and the node stops
-# producing blocks.
-infra/besu-network/data/*
-!infra/besu-network/data/key
+#
+# The validator key WAS excluded from this rule, so that a `git clean` could not
+# destroy the QBFT identity that genesis.json's extraData is built from. That
+# solved the right problem the wrong way: it put a private key that signs blocks
+# into a repository. The identity is now protected by being backed up out of
+# band instead — see infra/besu-network/README.md.
+#
+# Note `*.key` above does not catch these: the files are named `key`, with no
+# extension, so the pattern never matched them.
+infra/besu-network/data/
+infra/besu-network/generated/
 
 # Local engineering journal — working notes, not published.
 docs/

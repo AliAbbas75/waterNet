@@ -8,7 +8,8 @@ import {
   Package,
   SlidersHorizontal,
   Users,
-  Wrench
+  Wrench,
+  ScrollText
 } from "lucide-react";
 import { AppShell } from "./AppShell.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
@@ -22,7 +23,8 @@ const NAV = [
   { to: "/admin/alerts", label: "Alerts", icon: AlertTriangle },
   { to: "/admin/thresholds", label: "Thresholds", icon: SlidersHorizontal },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
-  { to: "/admin/issue-reports", label: "Citizen Reports", icon: MessagesSquare }
+  { to: "/admin/issue-reports", label: "Citizen Reports", icon: MessagesSquare },
+  { to: "/admin/audit", label: "Audit log", icon: ScrollText }
 ];
 
 // Account administration is SUPER_ADMIN only. An ADMIN runs operations —

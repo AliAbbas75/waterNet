@@ -10,7 +10,12 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["SUPER_ADMIN", "ADMIN", "MAINTAINER", "PUBLIC"],
+      // MANAGER sits between MAINTAINER and ADMIN: staff who hold and finish
+      // work orders like a maintainer, but own the off-site side of the job —
+      // procurement, restocking, supplier chasing. It exists so admin-owned
+      // work has somebody to be assigned TO, instead of an admin quietly
+      // assigning it to themselves.
+      enum: ["SUPER_ADMIN", "ADMIN", "MANAGER", "MAINTAINER", "PUBLIC"],
       default: "PUBLIC",
       index: true
     },
