@@ -13,6 +13,7 @@ import { PlantMap } from "../../components/map/PlantMap.jsx";
 import { DataTable } from "../../components/ui/DataTable.jsx";
 import { usePlant, usePlantState, usePlantConsumption, useUpdatePlant } from "../../hooks/usePlants.js";
 import { ConsumptionCard, ConsumptionBadge } from "../../components/plants/ConsumptionCard.jsx";
+import { ReportBuilder } from "../../components/reports/ReportBuilder.jsx";
 import { useDevices, useDeviceReadings } from "../../hooks/useDevices.js";
 import { useThresholds } from "../../hooks/useThresholds.js";
 import { fmtNum, relTime, fmtDate } from "../../lib/format.js";
@@ -52,6 +53,8 @@ export default function PlantDetailPage() {
     () => (devices.data || []).filter((d) => d.status === "INSTALLED"),
     [devices.data]
   );
+
+  const reportPlantIds = useMemo(() => [id], [id]);
 
   const thresholdMap = useMemo(() => {
     const map = {};
@@ -253,6 +256,17 @@ export default function PlantDetailPage() {
           devices={devices.data || []}
           qualityDeviceId={savedQualityDeviceId}
           thresholdMap={thresholdMap}
+        />
+      </section>
+
+      <section className="mt-6">
+        <h2 className="text-base font-semibold text-slate-900 mb-3">Reports</h2>
+        {/* Seeded and pinned to this plant; every other plant, time frame and
+            report type stays selectable from here. */}
+        <ReportBuilder
+          defaultPlantIds={reportPlantIds}
+          lockedPlantId={id}
+          defaultMode="individual"
         />
       </section>
 

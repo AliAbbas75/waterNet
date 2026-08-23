@@ -79,7 +79,9 @@ export const api = {
   put: (path, body, opts) => request(path, { ...opts, method: "PUT", body }),
   del: (path, opts) => request(path, { ...opts, method: "DELETE" }),
 
-  async download(path, filename, params) {
+  // Fetches a binary response with auth attached. The caller owns the returned
+  // object URL and must revoke it — see useObjectUrl on the report viewer.
+  async blob(path, params, { accept = "*/*" } = {}) {
     const base = backendUrl();
     const url = new URL(
       base ? base + path : path,
@@ -93,12 +95,27 @@ export const api = {
     const token = getBackendToken();
     const res = await fetch(url, {
       headers: {
-        Accept: "text/csv",
+        Accept: accept,
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       }
     });
-    if (!res.ok) throw new ApiError(`Export failed (${res.status})`, { status: res.status });
-    const blob = await res.blob();
+    if (!res.ok) {
+      if (res.status === 401) clearBackendToken();
+      // Errors come back as JSON even though we asked for a binary body.
+      let message = `Request failed (${res.status})`;
+      try {
+        const text = await res.text();
+        const parsed = JSON.parse(text);
+        message = parsed.error || parsed.message || message;
+      } catch {
+        /* non-JSON body — keep the status message */
+      }
+      throw new ApiError(message, { status: res.status });
+    }
+    return res.blob();
+  },
+
+  saveBlob(blob, filename) {
     const href = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = href;
@@ -107,5 +124,10 @@ export const api = {
     a.click();
     a.remove();
     URL.revokeObjectURL(href);
+  },
+
+  async download(path, filename, params, { accept = "text/csv" } = {}) {
+    const blob = await api.blob(path, params, { accept });
+    api.saveBlob(blob, filename);
   }
 };

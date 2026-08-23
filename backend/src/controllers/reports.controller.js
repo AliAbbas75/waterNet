@@ -1,11 +1,37 @@
+const mongoose = require("mongoose");
 const TelemetryReading = require("../models/TelemetryReading");
 const MaintenanceTask = require("../models/MaintenanceTask");
 const Device = require("../models/Device");
 const Plant = require("../models/Plant");
 const WaterQualityState = require("../models/WaterQualityState");
 const Alert = require("../models/Alert");
+const { buildQualityReport } = require("../services/report.service");
+const { renderPdf, renderDocx } = require("../services/reportDoc.service");
 
 const PARAM_KEYS = ["pH", "turbidity", "TDS", "flowRate"];
+
+// ?plantIds=a,b,c — repeated params work too, so the client can use either.
+function parsePlantIds(query) {
+  const raw = query.plantIds ?? query.plantId;
+  if (!raw) return [];
+  return (Array.isArray(raw) ? raw : String(raw).split(","))
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+}
+
+// An empty selection legitimately means "the whole network", so a malformed id
+// must be rejected rather than filtered out — dropping it would silently widen
+// a single-plant request into a network-wide one.
+function readScope(query) {
+  const plantIds = parsePlantIds(query);
+  const invalid = plantIds.find((id) => !mongoose.Types.ObjectId.isValid(id));
+  if (invalid) {
+    const err = new Error(`Invalid plant id: ${invalid}`);
+    err.statusCode = 400; // the app's error handler reads statusCode, not status
+    throw err;
+  }
+  return plantIds;
+}
 
 function parseRange(req) {
   const to = req.query.to ? new Date(req.query.to) : new Date();
@@ -205,6 +231,51 @@ exports.exportCsv = async (req, res, next) => {
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(csv);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /api/reports/quality/stats?plantIds=&range=24h|7d|30d|365d&mode=
+// Drives the in-app report preview.
+exports.qualityStats = async (req, res, next) => {
+  try {
+    const report = await buildQualityReport({
+      plantIds: readScope(req.query),
+      rangeKey: req.query.range,
+      mode: req.query.mode
+    });
+    res.json(report);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /api/reports/quality/document?plantIds=&range=&mode=&format=pdf|docx
+// Same payload as the preview, rendered as a document.
+exports.qualityDocument = async (req, res, next) => {
+  try {
+    const format = String(req.query.format || "pdf").toLowerCase();
+    if (format !== "pdf" && format !== "docx") {
+      return res.status(400).json({ error: "format must be pdf or docx" });
+    }
+
+    const report = await buildQualityReport({
+      plantIds: readScope(req.query),
+      rangeKey: req.query.range,
+      mode: req.query.mode
+    });
+
+    const { buffer, filename, contentType } = await (format === "pdf"
+      ? renderPdf(report)
+      : renderDocx(report));
+
+    // inline lets the viewer render it in an iframe; attachment forces a save.
+    const disposition = req.query.disposition === "attachment" ? "attachment" : "inline";
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Length", buffer.length);
+    res.setHeader("Content-Disposition", `${disposition}; filename="${filename}"`);
+    res.send(buffer);
   } catch (err) {
     next(err);
   }

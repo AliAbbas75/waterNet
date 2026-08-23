@@ -9,6 +9,7 @@ import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
 import { Avatar } from "../../components/ui/Avatar.jsx";
 import { DataTable } from "../../components/ui/DataTable.jsx";
 import { TimeSeriesChart } from "../../components/charts/TimeSeriesChart.jsx";
+import { ReportBuilder } from "../../components/reports/ReportBuilder.jsx";
 import {
   useMaintenancePerformance,
   useQualityTrends,
@@ -73,6 +74,15 @@ export default function ReportsPage() {
         description="Historical trends, maintenance performance and device uptime across the network."
         action={<BarChart3 size={20} className="text-slate-400" />}
       />
+
+      <section className="mb-8">
+        <ReportBuilder />
+      </section>
+
+      <div className="flex items-center gap-3 mb-4">
+        <h2 className="text-base font-semibold text-slate-900">Live analytics</h2>
+        <div className="h-px flex-1 bg-slate-200" />
+      </div>
 
       <Card className="mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

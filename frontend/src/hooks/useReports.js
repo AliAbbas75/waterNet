@@ -19,6 +19,20 @@ export function useQualityTrends({ plantId, from, to, bucket } = {}) {
   });
 }
 
+// Stats behind the report preview. plantIds is sent as a comma-joined list;
+// an empty list means the whole network.
+export function useQualityStats({ plantIds = [], range = "7d", mode = "aggregate", enabled = true } = {}) {
+  const ids = [...plantIds].sort();
+  return useQuery({
+    queryKey: ["report-quality-stats", ids.join(","), range, mode],
+    enabled,
+    queryFn: () =>
+      api.get("/api/reports/quality/stats", {
+        params: { plantIds: ids.join(","), range, mode }
+      })
+  });
+}
+
 export function useMaintenancePerformance({ from, to } = {}) {
   return useQuery({
     queryKey: ["report-maintenance", from, to],

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
+    "docx": "^9.7.1",
     "dotenv": "^16.4.5",
     "ethers": "^6.12.1",
     "express": "^4.19.2",
@@ -20,6 +21,7 @@
     "mqtt": "^5.15.1",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.0",
+    "pdfkit": "^0.19.1",
     "resend": "^4.0.0",
     "run": "^1.5.0",
     "socket.io": "^4.8.3",
