@@ -5,6 +5,10 @@
   },
   "build": {
     "preview": {
+      // Internal distribution: EAS hosts the finished APK behind a QR code and
+      // install link rather than only a dashboard download, which is what makes
+      // it installable straight onto a phone with no cable and no Play Store.
+      "distribution": "internal",
       "android": {
         "buildType": "apk"
       },
