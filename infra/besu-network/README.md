@@ -7,6 +7,37 @@ Single-validator proof-of-authority chain backing the on-chain user registry
 docker compose -f infra/besu-network/docker-compose.yml up -d
 ```
 
+## A fresh clone needs the repo and two secrets — nothing else
+
+The chain state is reproducible output, not something to be copied between
+machines. A contract's address is `keccak(rlp([deployer, nonce]))`, and the
+admin account deploys `UserRegistry` as its first transaction, so a chain built
+from this genesis with the same admin key puts the registry at the same address
+every time:
+
+```
+CREATE(0xb0a24eD2C3C2e35e3129883493856bd581e5880c, nonce 0)
+  = 0x491824d86efaF8fE50a2D3e447e0709746cE2Ef5
+```
+
+Verified against an empty data directory: a brand-new node deployed to exactly
+that address at block 2. So `CHAIN_USER_REGISTRY_ADDRESS` is a constant, not
+per-machine configuration.
+
+On a new machine:
+
+```bash
+cp backend/.env.example backend/.env      # then fill in the two keys
+docker compose -f infra/besu-network/docker-compose.yml up -d
+docker compose up -d --build
+docker exec waternet-backend node scripts/ensure-chain.js
+```
+
+`ensure-chain` waits for the RPC, deploys the registry only if the expected
+address has no code, and reconciles every active user's role onto the chain. It
+is idempotent — running it on an already-good chain reports what it found and
+changes nothing.
+
 ## The validator key is not in this repository, and must not be
 
 `data/key` is the QBFT validator identity. Its address —
@@ -20,8 +51,16 @@ solved. A key that signs blocks does not belong in a repository, and the
 protection it was given there was worse than the problem: anyone with a clone
 holds the sealing authority for this chain.
 
-It is now ignored, along with `generated/`. **Back it up out of band** — a
-password manager entry or an encrypted note is enough; it is 66 bytes.
+It is now ignored, along with `generated/`, and supplied as
+`CHAIN_VALIDATOR_KEY` instead. `config/bootstrap.sh` writes it to `data/key` at
+container start, and refuses to start rather than let Besu generate an identity
+that `extraData` does not name — a node that silently never seals a block is a
+worse failure than one that will not start.
+
+It never overwrites a key already on the volume: those blocks were sealed by
+that key, and swapping it leaves a node that cannot extend its own history.
+
+**Back it up out of band** — a password manager entry is enough; it is 66 bytes.
 
 ### If you lose it
 
@@ -74,7 +113,8 @@ Nothing else needs to change: the app talks to the chain only through
 | `config/config.toml` | yes | RPC settings. `sync-min-peers=0` so a single node seals without waiting for peers. |
 | `qbft-config.json` | yes | Input to `generate-blockchain-config`. |
 | `docker-compose.yml` | yes | Runs the node against `./data` and `./config`. |
-| `data/key` | **no** | Validator private key. Back this up yourself. |
+| `config/bootstrap.sh` | yes | Writes the validator key from the environment, then execs Besu. |
+| `data/key` | **no** | Validator private key, written at boot from `CHAIN_VALIDATOR_KEY`. |
 | `data/database`, `data/caches` | no | Live RocksDB. Never commit it — snapshots restore corrupt, and `git restore` over these paths destroys a working chain. |
 | `generated/` | no | Output of `generate-blockchain-config`, keys included. |
 
