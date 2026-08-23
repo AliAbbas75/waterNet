@@ -17,6 +17,9 @@ const InventoryItem = require("../src/models/InventoryItem");
 const MaintenanceTask = require("../src/models/MaintenanceTask");
 const MaintenanceLog = require("../src/models/MaintenanceLog");
 const PublicIssueReport = require("../src/models/PublicIssueReport");
+// Severity comes from the policy table rather than being written out here, so
+// the seed cannot fall behind the ladder the way it did when MAJOR replaced WARN.
+const { severityFor } = require("../src/services/alert.policy");
 
 function rand(min, max) {
   return min + Math.random() * (max - min);
@@ -316,7 +319,7 @@ async function seedAlerts(devices, plants) {
   const docs = [
     {
       type: "DEVICE_OFFLINE",
-      severity: "WARN",
+      severity: severityFor("DEVICE_OFFLINE"),
       plantId: p._id,
       deviceId: d?._id || null,
       message: `Device ${d?.deviceId || "WN-0001"} was offline for 12 minutes`,
@@ -326,7 +329,7 @@ async function seedAlerts(devices, plants) {
     },
     {
       type: "QUALITY_UNSAFE",
-      severity: "CRITICAL",
+      severity: severityFor("QUALITY_UNSAFE"),
       plantId: p._id,
       deviceId: d?._id || null,
       message: "Turbidity spiked above 4 NTU",
@@ -345,7 +348,7 @@ async function seedInventory() {
   await Alert.insertMany(
     low.map((i) => ({
       type: "LOW_INVENTORY",
-      severity: "WARN",
+      severity: severityFor("LOW_INVENTORY"),
       inventoryItemId: i._id,
       message: `${i.name} below reorder threshold (${i.quantity}/${i.reorderThreshold})`,
       status: "OPEN"
@@ -536,6 +539,17 @@ async function seedReports(users, plants) {
     process.exit(0);
   } catch (err) {
     console.error("Seed failed:", err);
+    // Roll back, or the half-written data trips the "already seeded" check on
+    // every later run and the database stays permanently incomplete — the
+    // stack then comes up healthy against a dataset missing everything the
+    // seed had not reached yet.
+    try {
+      await clear();
+      console.error("Rolled back the partial seed; re-run to try again.");
+    } catch (cleanupErr) {
+      console.error("Could not roll back the partial seed:", cleanupErr.message);
+      console.error("Re-run with SEED_FORCE=true to reseed from scratch.");
+    }
     process.exit(1);
   }
 })();
