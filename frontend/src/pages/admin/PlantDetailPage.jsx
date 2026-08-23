@@ -1,5 +1,5 @@
 import { Link, useParams } from "react-router-dom";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { ArrowLeft, Cpu, MapPin, Clock, Activity } from "lucide-react";
 import { PageHeader } from "../../components/ui/PageHeader.jsx";
 import { Card, CardHeader } from "../../components/ui/Card.jsx";
@@ -7,10 +7,11 @@ import { Badge, statusVariant, plantStatusVariant } from "../../components/ui/Ba
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { Button } from "../../components/ui/Button.jsx";
+import { Select } from "../../components/ui/Input.jsx";
 import { TimeSeriesChart } from "../../components/charts/TimeSeriesChart.jsx";
 import { PlantMap } from "../../components/map/PlantMap.jsx";
 import { DataTable } from "../../components/ui/DataTable.jsx";
-import { usePlant, usePlantState, usePlantConsumption } from "../../hooks/usePlants.js";
+import { usePlant, usePlantState, usePlantConsumption, useUpdatePlant } from "../../hooks/usePlants.js";
 import { ConsumptionCard, ConsumptionBadge } from "../../components/plants/ConsumptionCard.jsx";
 import { useDevices, useDeviceReadings } from "../../hooks/useDevices.js";
 import { useThresholds } from "../../hooks/useThresholds.js";
@@ -29,8 +30,28 @@ export default function PlantDetailPage() {
   const state = usePlantState(id);
   const consumption = usePlantConsumption(id);
   const devices = useDevices({ plantId: id });
+  const updatePlant = useUpdatePlant();
   const globalThresholds = useThresholds();
   const plantThresholds = useThresholds(id);
+  const [qualityDeviceId, setQualityDeviceId] = useState("");
+  const [saveError, setSaveError] = useState("");
+
+  // The pin as actually persisted. The Select is free to hold an unsaved
+  // choice, but everything that reports on the plant reads this instead, so
+  // the chart cannot drift away from the caption beneath it.
+  const savedQualityDeviceId = plant.data?.qualityDeviceId
+    ? plant.data.qualityDeviceId._id || plant.data.qualityDeviceId
+    : "";
+
+  useEffect(() => {
+    setQualityDeviceId(savedQualityDeviceId);
+    setSaveError("");
+  }, [savedQualityDeviceId]);
+
+  const plantDevices = useMemo(
+    () => (devices.data || []).filter((d) => d.status === "INSTALLED"),
+    [devices.data]
+  );
 
   const thresholdMap = useMemo(() => {
     const map = {};
@@ -131,28 +152,80 @@ export default function PlantDetailPage() {
           ) : !devices.data?.length ? (
             <EmptyState icon={Cpu} title="No devices installed yet." />
           ) : (
-            <ul className="space-y-2">
-              {devices.data.map((d) => (
-                <li key={d._id}>
-                  <Link
-                    to={`/admin/devices/${d._id}`}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50"
+            <>
+              <div className="space-y-2 mb-4">
+                <label className="block text-sm font-medium text-slate-700">Quality device</label>
+                <div className="flex gap-2 flex-col sm:flex-row">
+                  <div className="flex-1">
+                    <Select
+                      value={qualityDeviceId}
+                      onChange={(e) => setQualityDeviceId(e.target.value)}
+                    >
+                      <option value="">Auto (all devices)</option>
+                      {plantDevices.map((d) => (
+                        <option key={d._id} value={d._id}>
+                          {d.deviceId}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <Button
+                    onClick={async () => {
+                      setSaveError("");
+                      try {
+                        await updatePlant.mutateAsync({
+                          id,
+                          name: plant.data.name,
+                          address: plant.data.address,
+                          geo: plant.data.geo,
+                          operationalStatus: plant.data.operationalStatus,
+                          operatingHours: plant.data.operatingHours,
+                          qualityDeviceId: qualityDeviceId || null
+                        });
+                      } catch (err) {
+                        setSaveError(err.message || "Failed to save quality device.");
+                      }
+                    }}
+                    loading={updatePlant.isPending}
+                    disabled={updatePlant.isPending || !plant.data}
                   >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-800 truncate">{d.deviceId}</p>
-                      <p className="text-xs text-slate-500 truncate">
-                        FW {d.firmwareVersion || "—"} • Seen {relTime(d.lastSeenAt)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <Badge variant={statusVariant(d.availability)} dot>
-                        {d.availability === "AVAILABLE" ? "Online" : "Offline"}
-                      </Badge>
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+                    Save
+                  </Button>
+                </div>
+                {saveError ? <p className="text-xs text-red-600">{saveError}</p> : null}
+                {plant.data?.qualityDeviceId ? (
+                  <p className="text-sm text-slate-500">
+                    Using {plant.data.qualityDeviceId.deviceId} for water quality analysis.
+                  </p>
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    No specific device selected; all installed devices are eligible.
+                  </p>
+                )}
+              </div>
+              <ul className="space-y-2">
+                {devices.data.map((d) => (
+                  <li key={d._id}>
+                    <Link
+                      to={`/admin/devices/${d._id}`}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-800 truncate">{d.deviceId}</p>
+                        <p className="text-xs text-slate-500 truncate">
+                          FW {d.firmwareVersion || "—"} • Seen {relTime(d.lastSeenAt)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Badge variant={statusVariant(d.availability)} dot>
+                          {d.availability === "AVAILABLE" ? "Online" : "Offline"}
+                        </Badge>
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </Card>
       </div>
@@ -176,7 +249,11 @@ export default function PlantDetailPage() {
 
       <section className="mt-6">
         <h2 className="text-base font-semibold text-slate-900 mb-3">Trends</h2>
-        <DeviceTrends devices={devices.data || []} thresholdMap={thresholdMap} />
+        <DeviceTrends
+          devices={devices.data || []}
+          qualityDeviceId={savedQualityDeviceId}
+          thresholdMap={thresholdMap}
+        />
       </section>
 
       <section className="mt-6">
@@ -245,12 +322,19 @@ function ParameterCard({ param, states, threshold }) {
   );
 }
 
-function DeviceTrends({ devices, thresholdMap }) {
+function DeviceTrends({ devices, qualityDeviceId, thresholdMap }) {
   if (!devices.length) {
     return <EmptyState title="No devices to chart." />;
   }
-  // Pick the first installed device with telemetry — usually enough for an at-a-glance.
-  const focus = devices.find((d) => d.status === "INSTALLED") || devices[0];
+  // The plant's pinned quality device wins; otherwise fall back to the first
+  // installed one, which is usually enough for an at-a-glance.
+  const focus =
+    (qualityDeviceId && devices.find((d) => d._id === qualityDeviceId)) ||
+    devices.find((d) => d.status === "INSTALLED") ||
+    devices[0];
+  if (!focus) {
+    return <EmptyState title="No devices to chart." />;
+  }
   return <DeviceTrendCharts deviceId={focus._id} thresholdMap={thresholdMap} deviceLabel={focus.deviceId} />;
 }
 

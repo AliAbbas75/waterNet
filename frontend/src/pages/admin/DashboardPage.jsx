@@ -45,6 +45,7 @@ export default function DashboardPage() {
           value={o ? o.plants.total : "—"}
           icon={Building2}
           accent="brand"
+          to="/admin/plants"
           trend={
             o
               ? `${o.plants.byStatus.find((x) => x._id === "OPERATIONAL")?.n || 0} operational`
@@ -56,6 +57,7 @@ export default function DashboardPage() {
           value={o ? `${o.devices.total - (o.devices.byAvailability.find((x) => x._id === "UNAVAILABLE")?.n || 0)} / ${o.devices.total}` : "—"}
           icon={Cpu}
           accent="safe"
+          to="/admin/devices"
           trend={o ? `${o.devices.availablePct}% online` : "Loading…"}
         />
         <Stat
@@ -63,6 +65,7 @@ export default function DashboardPage() {
           value={o ? o.openAlerts : "—"}
           icon={AlertTriangle}
           accent={o && o.openAlerts > 0 ? "unsafe" : "neutral"}
+          to="/admin/alerts"
           trend={o && o.unsafeStates > 0 ? `${o.unsafeStates} unsafe readings` : "All systems steady"}
         />
         <Stat
@@ -70,6 +73,7 @@ export default function DashboardPage() {
           value={o ? o.pendingTasks : "—"}
           icon={ClipboardList}
           accent={o && o.pendingTasks > 0 ? "warn" : "neutral"}
+          to="/admin/maintenance"
           trend={inProgress.data ? `${inProgress.data.length} in progress` : "—"}
         />
       </section>

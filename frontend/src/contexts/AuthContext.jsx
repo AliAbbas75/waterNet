@@ -103,6 +103,10 @@ export function hasRole(user, ...roles) {
   return roles.some((r) => userLevel >= (hierarchy[r] ?? 99));
 }
 
+export function isAdminRole(role) {
+  return role === "ADMIN" || role === "SUPER_ADMIN";
+}
+
 export function homeRouteForRole(role) {
   // Matched exactly, not by rank: an admin outranks a maintainer but must not
   // land in the maintainer console, which is a personal work queue rather than
