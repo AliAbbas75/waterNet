@@ -3,6 +3,7 @@ const User = require("../models/User");
 const { logAudit } = require("./audit.service");
 const { emit: socketEmit } = require("./socket.service");
 const { notify } = require("./notification.service");
+const { summariseWindow } = require("./metricsWindow.service");
 
 // Roles that can hold a work order. PUBLIC obviously cannot; SUPER_ADMIN can,
 // but assigning the top account routine field work is almost always a mistake,
@@ -42,6 +43,29 @@ async function assignTicket({ task, assignedToUserId, actorUserId, req = null, n
     task.status = "ASSIGNED";
     task.triagedByUserId = actorUserId;
     task.triagedAt = new Date();
+  }
+
+  // The 24h window is attached when an alert raises a ticket, but nothing was
+  // attaching it to a ticket raised any other way — a manual job, or one that
+  // predates the window existing. Assignment is the moment it stops being a row
+  // in a queue and becomes somebody's trip to a plant, so it is the last useful
+  // moment to work out what the readings looked like.
+  //
+  // Anchored to when the work order was raised, not to now: it is the evidence
+  // for the fault being reported, and a window recomputed at assignment would
+  // quietly answer a different question the longer a ticket sat in triage.
+  if (!task.metricsWindow && (task.plantId || task.deviceId)) {
+    try {
+      task.metricsWindow = await summariseWindow({
+        deviceRef: task.deviceId || null,
+        plantId: task.plantId || null,
+        at: task.createdAt || new Date()
+      });
+    } catch (err) {
+      // Best effort. A summary that cannot be built is not a reason to refuse
+      // to route work to somebody.
+      console.error("Could not summarise the metrics window:", err?.message || err);
+    }
   }
 
   await task.save();

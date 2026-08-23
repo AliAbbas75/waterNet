@@ -35,6 +35,26 @@ export function useStartTask() {
   });
 }
 
+/**
+ * Tick a required step off, or reopen one.
+ *
+ * The server refuses to resolve a task while any step is outstanding, so
+ * without this a maintainer holding a safety-critical work order on a phone
+ * could open it and never close it.
+ */
+export function useCompleteChecklistItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, index, done }) =>
+      api.patch(`/api/maintenance/tasks/${id}/checklist`, { index, done }),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["my-tasks"] });
+      qc.invalidateQueries({ queryKey: ["task", vars.id] });
+      qc.invalidateQueries({ queryKey: ["task-logs", vars.id] });
+    }
+  });
+}
+
 /** Park a started task, or bring it back. A reason is required to park it. */
 export function useSetBlocked() {
   const qc = useQueryClient();

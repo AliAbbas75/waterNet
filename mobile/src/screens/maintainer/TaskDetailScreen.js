@@ -16,12 +16,14 @@ import Badge from "../../components/Badge.js";
 import Button from "../../components/Button.js";
 import Card, { CardHeader } from "../../components/Card.js";
 import MetricsWindow from "../../components/MetricsWindow.js";
+import { Checklist, Diagnostics } from "../../components/WorkOrderDetail.js";
 import EmptyState from "../../components/EmptyState.js";
 import { Field, Input, Select } from "../../components/Input.js";
 import Spinner from "../../components/Spinner.js";
 import { useInventory } from "../../hooks/useInventory.js";
 import {
   useAddTaskLog,
+  useCompleteChecklistItem,
   useResolveTask,
   useSetBlocked,
   useStartTask,
@@ -39,6 +41,8 @@ export default function TaskDetailScreen() {
   const start = useStartTask();
   const addLog = useAddTaskLog();
   const setBlocked = useSetBlocked();
+  const tickStep = useCompleteChecklistItem();
+  const [pendingStep, setPendingStep] = useState(null);
   const [logNote, setLogNote] = useState("");
   const [resolveOpen, setResolveOpen] = useState(false);
   const [blockOpen, setBlockOpen] = useState(false);
@@ -144,6 +148,27 @@ export default function TaskDetailScreen() {
           ) : null}
         </View>
       </Card>
+
+      <Diagnostics task={t} />
+
+      {/* Only the holder of the ticket may tick steps off, and only once the
+          job has actually been started — the steps describe work at a plant,
+          not a decision made on the way there. */}
+      <Checklist
+        task={t}
+        canEdit={Boolean(t.startedAt) && !t.resolvedAt}
+        pendingIndex={pendingStep}
+        onToggle={async (index, done) => {
+          setPendingStep(index);
+          try {
+            await tickStep.mutateAsync({ id, index, done });
+          } catch (e) {
+            RNAlert.alert("Could not update the step", e?.message || "Please try again.");
+          } finally {
+            setPendingStep(null);
+          }
+        }}
+      />
 
       <MetricsWindow task={t} />
 
@@ -324,7 +349,16 @@ function ResolveModal({ taskId, open, onClose }) {
       setSummary("");
       setMaterials([]);
     } catch (e) {
-      setErrorMsg(e?.message || "Failed to resolve");
+      // The server refuses to close a job with steps outstanding, and names
+      // them. "Checklist incomplete" on its own leaves somebody standing at a
+      // plant with no idea what is still owed.
+      const outstanding = e?.body?.outstanding;
+      if (Array.isArray(outstanding) && outstanding.length) {
+        const steps = outstanding.map((o) => "• " + o).join("\n");
+        setErrorMsg("Still to do before this can be closed:\n" + steps);
+      } else {
+        setErrorMsg(e?.message || "Failed to resolve");
+      }
     }
   }
 
