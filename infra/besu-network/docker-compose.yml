@@ -1,12 +1,16 @@
 services:
   besu:
-    image: hyperledger/besu:latest
+    # Built from the Dockerfile beside this file, not the bare upstream image,
+    # so local and Railway run the same thing — same genesis, same bootstrap,
+    # same healthcheck. That is the whole point of having the Dockerfile.
+    build:
+      context: .
+    image: waternet-besu:latest
     container_name: waternet-besu
     # The validator identity comes from the environment, not from git. See
     # config/bootstrap.sh and the README for why, and what to do if it is lost.
     environment:
       CHAIN_VALIDATOR_KEY: "${CHAIN_VALIDATOR_KEY:-}"
-    entrypoint: ["/bin/bash", "/config/bootstrap.sh"]
     ports:
       # Bound to loopback deliberately. The RPC has no authentication and
       # host-allowlist is "*", so anything that can reach this port can drive
@@ -15,14 +19,6 @@ services:
       - "127.0.0.1:8546:8546"
     volumes:
       - ./data:/data
-      - ./config:/config
-    command: >
-      --genesis-file=/config/genesis.json
-      --config-file=/config/config.toml
-      --data-path=/data
-      --rpc-http-cors-origins="*"
-      --host-allowlist="*"
-      --min-gas-price=0
     restart: unless-stopped
     healthcheck:
       test:
