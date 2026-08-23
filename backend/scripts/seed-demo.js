@@ -515,6 +515,11 @@ async function seedReports(citizens, plants) {
     await connectDb();
     console.log(`Additive demo seed${HEAVY ? " (heavy)" : ""} — nothing is deleted or overwritten.\n`);
 
+    // Measured before anything below writes. The backfill a few lines down tags
+    // its tickets with the same marker, so counting after it would see work
+    // this very run had just created.
+    const preExisting = await MaintenanceTask.countDocuments({ "externalRef.source": MARK });
+
     console.log("- staff");
     await seedUsers();
 
@@ -535,10 +540,9 @@ async function seedReports(citizens, plants) {
 
     // Everything above this line is idempotent. Everything below it appends,
     // so a second run without --again would silently double the queue.
-    const alreadySeeded = await MaintenanceTask.countDocuments({ "externalRef.source": MARK });
-    if (alreadySeeded && !AGAIN) {
+    if (preExisting && !AGAIN) {
       console.log(`
-${alreadySeeded} demo work orders are already here.`);
+${preExisting} demo work orders were already here before this run.`);
       console.log("Staff and the alert backfill are up to date; stopping before adding more.");
       console.log("Pass --again to append another round.");
       await mongoose.disconnect();
