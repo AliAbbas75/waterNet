@@ -16,7 +16,7 @@ import { PageHeader } from "../../components/ui/PageHeader.jsx";
 import { Card, CardHeader } from "../../components/ui/Card.jsx";
 import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
 import { TaskStatusTag } from "../../components/ui/TaskStatus.jsx";
-import { ChecklistCard, DiagnosticsCard } from "../../components/ui/WorkOrderDetail.jsx";
+import { ChecklistCard, DiagnosticsCard, MetricsWindowCard } from "../../components/ui/WorkOrderDetail.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { Button } from "../../components/ui/Button.jsx";
@@ -158,6 +158,8 @@ export default function TaskDetailPage() {
           </Card>
 
           <DiagnosticsCard task={t} />
+
+          <MetricsWindowCard task={t} />
 
           <ChecklistCard
             task={t}

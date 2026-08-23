@@ -135,6 +135,16 @@ const maintenanceTaskSchema = new mongoose.Schema(
       label: { type: String, required: true },
       value: { type: String, required: true }
     }],
+    // A day of readings, bucketed by hour, as they stood when the alert fired.
+    // Raw telemetry is not stored — a device reporting every 5 seconds makes
+    // ~17,000 rows a day and a work order is not a data warehouse. The summary
+    // survives the device going offline afterwards, which a live lookup would
+    // not, and it answers "what was it doing before this" rather than "what is
+    // it doing now".
+    metricsWindow: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null
+    },
     // Required steps for safety-critical work, carried from the alert policy.
     // Stored now so the record is complete; enforcement at closure lands with
     // the safety workflow.

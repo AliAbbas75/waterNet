@@ -15,6 +15,7 @@ import Avatar from "../../components/Avatar.js";
 import Badge from "../../components/Badge.js";
 import Button from "../../components/Button.js";
 import Card, { CardHeader } from "../../components/Card.js";
+import MetricsWindow from "../../components/MetricsWindow.js";
 import EmptyState from "../../components/EmptyState.js";
 import { Field, Input, Select } from "../../components/Input.js";
 import Spinner from "../../components/Spinner.js";
@@ -143,6 +144,8 @@ export default function TaskDetailScreen() {
           ) : null}
         </View>
       </Card>
+
+      <MetricsWindow task={t} />
 
       <Card>
         <CardHeader title="Where" />
