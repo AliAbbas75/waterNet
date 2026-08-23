@@ -19,12 +19,13 @@ function haversineKm(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
+// The overall category always aggregates every device at the plant, even when
+// one is pinned as the quality source. A pin decides which readings we put in
+// front of people; it must never let an UNSAFE reading elsewhere on site go
+// unreported, or the public page would show SAFE while QUALITY_UNSAFE alerts
+// are open for the same plant.
 async function buildPlantStatus(plant) {
-  const query = { plantId: plant._id };
-  if (plant.qualityDeviceId) {
-    query.deviceId = plant.qualityDeviceId;
-  }
-  const states = await WaterQualityState.find(query)
+  const states = await WaterQualityState.find({ plantId: plant._id })
     .populate("deviceId", "deviceId availability status");
   const categories = states.map((s) => s.category);
   let overall = "NO_DATA";

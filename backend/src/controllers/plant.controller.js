@@ -121,6 +121,11 @@ exports.updatePlant = async (req, res, next) => {
       if (!qualityDevice.plantId || qualityDevice.plantId.toString() !== req.params.id) {
         return res.status(400).json({ error: 'Quality device must belong to this plant' });
       }
+      // The picker only offers INSTALLED devices; accepting anything else would
+      // persist a pin the dropdown cannot represent, leaving the Select blank.
+      if (qualityDevice.status !== 'INSTALLED') {
+        return res.status(400).json({ error: 'Quality device must be installed' });
+      }
     }
 
     const plant = await Plant.findByIdAndUpdate(

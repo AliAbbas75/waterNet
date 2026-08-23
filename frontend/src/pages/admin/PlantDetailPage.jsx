@@ -7,7 +7,7 @@ import { Badge, statusVariant, plantStatusVariant } from "../../components/ui/Ba
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { Button } from "../../components/ui/Button.jsx";
-import { Field, Select } from "../../components/ui/Input.jsx";
+import { Select } from "../../components/ui/Input.jsx";
 import { TimeSeriesChart } from "../../components/charts/TimeSeriesChart.jsx";
 import { PlantMap } from "../../components/map/PlantMap.jsx";
 import { DataTable } from "../../components/ui/DataTable.jsx";
@@ -34,14 +34,19 @@ export default function PlantDetailPage() {
   const globalThresholds = useThresholds();
   const plantThresholds = useThresholds(id);
   const [qualityDeviceId, setQualityDeviceId] = useState("");
+  const [saveError, setSaveError] = useState("");
+
+  // The pin as actually persisted. The Select is free to hold an unsaved
+  // choice, but everything that reports on the plant reads this instead, so
+  // the chart cannot drift away from the caption beneath it.
+  const savedQualityDeviceId = plant.data?.qualityDeviceId
+    ? plant.data.qualityDeviceId._id || plant.data.qualityDeviceId
+    : "";
 
   useEffect(() => {
-    if (plant.data?.qualityDeviceId) {
-      setQualityDeviceId(plant.data.qualityDeviceId._id || plant.data.qualityDeviceId);
-    } else {
-      setQualityDeviceId("");
-    }
-  }, [plant.data?.qualityDeviceId]);
+    setQualityDeviceId(savedQualityDeviceId);
+    setSaveError("");
+  }, [savedQualityDeviceId]);
 
   const plantDevices = useMemo(
     () => (devices.data || []).filter((d) => d.status === "INSTALLED"),
@@ -151,7 +156,7 @@ export default function PlantDetailPage() {
               <div className="space-y-2 mb-4">
                 <label className="block text-sm font-medium text-slate-700">Quality device</label>
                 <div className="flex gap-2 flex-col sm:flex-row">
-                  <Field className="flex-1">
+                  <div className="flex-1">
                     <Select
                       value={qualityDeviceId}
                       onChange={(e) => setQualityDeviceId(e.target.value)}
@@ -163,18 +168,23 @@ export default function PlantDetailPage() {
                         </option>
                       ))}
                     </Select>
-                  </Field>
+                  </div>
                   <Button
                     onClick={async () => {
-                      await updatePlant.mutateAsync({
-                        id,
-                        name: plant.data.name,
-                        address: plant.data.address,
-                        geo: plant.data.geo,
-                        operationalStatus: plant.data.operationalStatus,
-                        operatingHours: plant.data.operatingHours,
-                        qualityDeviceId: qualityDeviceId || null
-                      });
+                      setSaveError("");
+                      try {
+                        await updatePlant.mutateAsync({
+                          id,
+                          name: plant.data.name,
+                          address: plant.data.address,
+                          geo: plant.data.geo,
+                          operationalStatus: plant.data.operationalStatus,
+                          operatingHours: plant.data.operatingHours,
+                          qualityDeviceId: qualityDeviceId || null
+                        });
+                      } catch (err) {
+                        setSaveError(err.message || "Failed to save quality device.");
+                      }
                     }}
                     loading={updatePlant.isPending}
                     disabled={updatePlant.isPending || !plant.data}
@@ -182,6 +192,7 @@ export default function PlantDetailPage() {
                     Save
                   </Button>
                 </div>
+                {saveError ? <p className="text-xs text-red-600">{saveError}</p> : null}
                 {plant.data?.qualityDeviceId ? (
                   <p className="text-sm text-slate-500">
                     Using {plant.data.qualityDeviceId.deviceId} for water quality analysis.
@@ -240,7 +251,7 @@ export default function PlantDetailPage() {
         <h2 className="text-base font-semibold text-slate-900 mb-3">Trends</h2>
         <DeviceTrends
           devices={devices.data || []}
-          qualityDeviceId={qualityDeviceId}
+          qualityDeviceId={savedQualityDeviceId}
           thresholdMap={thresholdMap}
         />
       </section>

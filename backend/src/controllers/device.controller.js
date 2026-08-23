@@ -3,6 +3,19 @@ const Plant = require("../models/Plant");
 const TelemetryReading = require("../models/TelemetryReading");
 const { handleTelemetryPayload } = require("../services/mqtt.service");
 
+// A plant may pin one device as its quality source. If that device leaves the
+// plant — uninstalled, deleted, moved elsewhere, or no longer INSTALLED — the
+// pin has to go with it. Otherwise the plant keeps filtering its readings on a
+// device that no longer reports for it, and once the device drops off the
+// plant's list there is no way to clear the pin from the UI.
+async function unpinQualityDevice(deviceId, keepForPlantId = null) {
+  const query = { qualityDeviceId: deviceId };
+  if (keepForPlantId) {
+    query._id = { $ne: keepForPlantId };
+  }
+  await Plant.updateMany(query, { $set: { qualityDeviceId: null } });
+}
+
 exports.getDevices = async (req, res, next) => {
   try {
     const { status, plantId, disabled } = req.query;
@@ -82,6 +95,12 @@ exports.updateDevice = async (req, res, next) => {
       return res.status(404).json({ error: 'Device not found' });
     }
 
+    // Either field may have moved the device off the plant that pinned it.
+    await unpinQualityDevice(
+      device._id,
+      device.status === 'INSTALLED' ? device.plantId?._id || device.plantId : null
+    );
+
     res.json({ device });
   } catch (err) {
     next(err);
@@ -116,6 +135,9 @@ exports.installDevice = async (req, res, next) => {
       return res.status(404).json({ error: 'Device not found' });
     }
 
+    // Installing elsewhere drops any pin held by the device's previous plant.
+    await unpinQualityDevice(device._id, plantId);
+
     res.json({ device });
   } catch (err) {
     next(err);
@@ -138,6 +160,8 @@ exports.uninstallDevice = async (req, res, next) => {
       return res.status(404).json({ error: 'Device not found' });
     }
 
+    await unpinQualityDevice(device._id);
+
     res.json({ device });
   } catch (err) {
     next(err);
@@ -150,6 +174,7 @@ exports.deleteDevice = async (req, res, next) => {
     if (!device) {
       return res.status(404).json({ error: 'Device not found' });
     }
+    await unpinQualityDevice(device._id);
     res.json({ message: 'Device deleted' });
   } catch (err) {
     next(err);

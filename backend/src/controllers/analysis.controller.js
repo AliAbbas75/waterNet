@@ -164,12 +164,11 @@ exports.getPlantState = async (req, res, next) => {
       return res.status(404).json({ error: 'Plant not found' });
     }
 
-    const query = { plantId: req.params.id };
-    if (plant.qualityDeviceId) {
-      query.deviceId = plant.qualityDeviceId._id || plant.qualityDeviceId;
-    }
-
-    const states = await WaterQualityState.find(query).populate('deviceId', 'deviceId availability');
+    // Every device at the plant, pinned or not — the parameter cards take the
+    // worst category across devices, and that has to agree with the alert feed
+    // and the dashboard's unsafe count. The pin only steers the trends chart.
+    const states = await WaterQualityState.find({ plantId: req.params.id })
+      .populate('deviceId', 'deviceId availability');
 
     res.json({ plant, states });
   } catch (err) {
