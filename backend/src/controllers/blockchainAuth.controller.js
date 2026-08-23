@@ -17,7 +17,8 @@ const {
   isActiveOnChain,
   isBlockchainEnabled,
   registerUserOnChain,
-  setRoleOnChain
+  setRoleOnChain,
+  ROLE_TO_ID
 } = require("../config/blockchain");
 
 const OTP_EXP_MINUTES = 10;
@@ -347,7 +348,18 @@ exports.verifyChallenge = async (req, res, next) => {
       return res.status(403).json({ ok: false, error: "Account disabled", requestId: req.requestId });
     }
 
-    user.role = chainRole;
+    // The registry stores four roles; this app has five. MANAGER is written
+    // on-chain as the maintainer grade, so reading it straight back would demote
+    // every manager to MAINTAINER on login — and persist it.
+    //
+    // The chain is still authoritative about privilege. It just cannot express
+    // the distinction, so when the stored role encodes to the same id the chain
+    // reports, the two agree and the more specific local role stands. Only a
+    // genuine disagreement overwrites.
+    const agrees = ROLE_TO_ID[user.role] === ROLE_TO_ID[chainRole];
+    if (!agrees) {
+      user.role = chainRole;
+    }
     user.active = chainActive;
     user.last_login_at = new Date();
     await user.save();
