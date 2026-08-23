@@ -144,7 +144,23 @@ async function evaluateQuality(plantId, deviceRef, deviceKey) {
       deviceId: deviceRef,
       message: `Water quality unsafe at plant ${plantDoc?.name || plantId}`,
       meta: { reasons: breached },
-      context: { plantName: plantDoc?.name, parameters: breached.join(', ') }
+      // The readings themselves travel to the work order. A maintainer opening
+      // the ticket should not have to go and reconstruct which value breached
+      // which limit — by then the readings have moved on.
+      context: {
+        plantName: plantDoc?.name,
+        parameters: breached.join(', '),
+        readings: reasons
+          .filter((r) => r.threshold !== 'safe')
+          .map((r) => `${r.parameter} ${r.value}`)
+          .join(', '),
+        thresholds: reasons
+          .filter((r) => r.threshold !== 'safe')
+          .map((r) => `${r.parameter} ${r.threshold}`)
+          .join(', '),
+        consecutiveUnsafe: `${consecutiveUnsafe} consecutive readings`,
+        deviceName: deviceKey
+      }
     });
   } else {
     // Readings came back inside limits. The alert stops being OPEN, but a

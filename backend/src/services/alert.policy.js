@@ -45,6 +45,15 @@ const POLICY = {
     severity: "MAJOR",
     raisesTicket: true,
     ownerRole: "MAINTAINER",
+    // An intermittent fault is diagnosed differently from a dead one: the
+    // device is reachable, so the questions are about power and signal quality
+    // rather than whether anyone can get to it.
+    checklist: [
+      { label: "Power supply and cabling checked at the cabinet" },
+      { label: "Signal strength recorded at the installation" },
+      { label: "Connector and antenna reseated" },
+      { label: "Device observed stable for 30 minutes before leaving" }
+    ],
     title: (ctx) => `Device unstable — ${ctx.deviceName || "device"}`,
     description: (ctx) =>
       `${ctx.deviceName || "The device"} is cycling between online and offline. ` +
@@ -56,6 +65,15 @@ const POLICY = {
     severity: "MAJOR",
     raisesTicket: true,
     ownerRole: "MAINTAINER",
+    // The plant is unmonitored until this is closed, so the last step is
+    // explicitly about confirming readings resumed — not merely that a light
+    // came back on.
+    checklist: [
+      { label: "Power at the installation confirmed" },
+      { label: "Device physically inspected for damage or tampering" },
+      { label: "Network or SIM connectivity verified on site" },
+      { label: "Live telemetry confirmed arriving after the fix" }
+    ],
     title: (ctx) => `Device offline — ${ctx.deviceName || "device"}`,
     description: (ctx) =>
       `${ctx.deviceName || "The device"} has stopped reporting, so this plant is ` +
@@ -70,6 +88,11 @@ const POLICY = {
     raisesTicket: false,
     // Restocking is procurement, not a site visit: it belongs to a manager.
     ownerRole: "MANAGER",
+    checklist: [
+      { label: "Purchase order raised with the supplier" },
+      { label: "Delivery date confirmed in writing" },
+      { label: "Stock received and counted in" }
+    ],
     title: (ctx) => `Restock — ${ctx.itemName || "inventory item"}`,
     description: (ctx) =>
       `${ctx.itemName || "This item"} has fallen to or below its reorder point. ` +
@@ -88,6 +111,57 @@ const POLICY = {
     ownerRole: "MANAGER"
   }
 };
+
+/**
+ * The evidence a maintainer needs on the work order itself.
+ *
+ * Each entry is whatever the detection path already knew at the moment it
+ * raised the alert. It is captured onto the ticket rather than looked up later,
+ * because "last seen 40 minutes ago" is only meaningful next to the time the
+ * alert fired — by the time someone opens the ticket, a live lookup answers a
+ * different question.
+ */
+const DIAGNOSTICS = {
+  QUALITY_UNSAFE: (ctx) => [
+    ["Breached parameters", ctx.parameters],
+    ["Readings at breach", ctx.readings],
+    ["Consecutive unsafe readings", ctx.consecutiveUnsafe],
+    ["Reporting device", ctx.deviceName],
+    ["Thresholds applied", ctx.thresholds]
+  ],
+  DEVICE_OFFLINE: (ctx) => [
+    ["Device", ctx.deviceName],
+    ["Last reported", ctx.lastSeenAt],
+    ["Silent for", ctx.silentFor],
+    ["Expected reporting interval", ctx.expectedInterval],
+    ["Grace period allowed", ctx.gracePeriod]
+  ],
+  DEVICE_FLAPPING: (ctx) => [
+    ["Device", ctx.deviceName],
+    ["Availability changes", ctx.flips],
+    ["Observed over", ctx.flapWindow],
+    ["Unstable since", ctx.flappingSince],
+    ["Last reported", ctx.lastSeenAt]
+  ],
+  LOW_INVENTORY: (ctx) => [
+    ["Item", ctx.itemName],
+    ["Quantity on hand", ctx.quantity],
+    ["Reorder point", ctx.reorderThreshold]
+  ]
+};
+
+/**
+ * Builds the diagnostic snapshot for an alert, dropping anything the detection
+ * path could not supply. Everything is stringified: this is a record of what
+ * was true, not a value anything computes against later.
+ */
+function diagnosticsFor(type, ctx = {}) {
+  const build = DIAGNOSTICS[type];
+  if (!build) return [];
+  return build(ctx)
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .map(([label, value]) => ({ label, value: String(value) }));
+}
 
 function policyFor(type) {
   return POLICY[type] || { severity: "INFO", raisesTicket: false, ownerRole: "ADMIN" };
@@ -134,7 +208,8 @@ function ticketForAlert(alert, ctx = {}, { force = false } = {}) {
     plantId: alert.plantId || null,
     deviceId: alert.deviceId || null,
     externalRef: { type: "ALERT", id: alert._id },
-    checklist: policy.checklist || null
+    checklist: policy.checklist || null,
+    diagnostics: diagnosticsFor(alert.type, ctx)
   };
 }
 
@@ -146,6 +221,8 @@ function raisedAtSafe(value) {
 
 module.exports = {
   POLICY,
+  DIAGNOSTICS,
+  diagnosticsFor,
   TRIAGE_MINUTES,
   policyFor,
   severityFor,

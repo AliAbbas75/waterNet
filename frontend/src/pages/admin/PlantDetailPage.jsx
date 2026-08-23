@@ -1,6 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { useMemo, useState, useEffect } from "react";
-import { ArrowLeft, Cpu, MapPin, Clock, Activity } from "lucide-react";
+import { ArrowLeft, Cpu, MapPin, Clock, Activity, UserCog, Wrench } from "lucide-react";
 import { PageHeader } from "../../components/ui/PageHeader.jsx";
 import { Card, CardHeader } from "../../components/ui/Card.jsx";
 import { Badge, statusVariant, plantStatusVariant } from "../../components/ui/Badge.jsx";
@@ -16,6 +16,9 @@ import { ConsumptionCard, ConsumptionBadge } from "../../components/plants/Consu
 import { useDevices, useDeviceReadings } from "../../hooks/useDevices.js";
 import { useThresholds } from "../../hooks/useThresholds.js";
 import { fmtNum, relTime, fmtDate } from "../../lib/format.js";
+import { useTasks } from "../../hooks/useMaintenance.js";
+import { useUsers } from "../../hooks/useUsers.js";
+import { TaskStatusTag, taskPhase } from "../../components/ui/TaskStatus.jsx";
 
 const PARAMS = [
   { key: "pH", label: "pH", unit: "" },
@@ -142,6 +145,13 @@ export default function PlantDetailPage() {
           </Card>
         </div>
         <ConsumptionCard query={consumption} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-4 sm:mb-6">
+        <CoverageCard plant={plant.data} />
+        <div className="lg:col-span-2">
+          <MaintenanceHistoryCard plantId={id} plantName={plant.data?.name} />
+        </div>
       </div>
 
       <div>
@@ -382,5 +392,154 @@ function DeviceTrendCharts({ deviceId, thresholdMap, deviceLabel }) {
         </Card>
       ))}
     </div>
+  );
+}
+
+/** Who answers for this site. Sets the default assignee for its alerts. */
+function CoverageCard({ plant }) {
+  const users = useUsers();
+  const update = useUpdatePlant();
+  const [value, setValue] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const current = plant?.coveringMaintainerId || null;
+
+  useEffect(() => {
+    setValue(current?._id || "");
+    setSaved(false);
+  }, [current?._id]);
+
+  const candidates = (users.data || []).filter(
+    (u) => ["MAINTAINER", "MANAGER", "ADMIN"].includes(u.role) && u.active !== false
+  );
+
+  const dirty = String(value || "") !== String(current?._id || "");
+
+  async function save() {
+    await update.mutateAsync({ id: plant._id, coveringMaintainerId: value || null });
+    setSaved(true);
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Coverage"
+        subtitle="Default assignee for alerts here"
+        action={<UserCog size={16} className="text-slate-400" />}
+      />
+
+      {current ? (
+        <p className="mb-3 text-sm text-slate-700">
+          <span className="font-medium">{current.display_name || current.email}</span>{" "}
+          <span className="text-slate-400">· {current.role}</span>
+        </p>
+      ) : (
+        <p className="mb-3 text-sm text-amber-700">
+          Nobody covers this plant. Its alerts will open with no suggested assignee.
+        </p>
+      )}
+
+      <Select value={value} onChange={(e) => setValue(e.target.value)} disabled={users.isLoading}>
+        <option value="">— No one —</option>
+        {candidates.map((u) => (
+          <option key={u._id} value={u._id}>
+            {u.display_name || u.email} ({u.role})
+          </option>
+        ))}
+      </Select>
+
+      <div className="mt-3 flex items-center gap-2">
+        <Button size="sm" onClick={save} disabled={!dirty} loading={update.isPending}>
+          Save coverage
+        </Button>
+        {saved && !dirty ? <span className="text-xs text-emerald-700">Saved</span> : null}
+      </div>
+    </Card>
+  );
+}
+
+/** What has been done to this plant, and what is being done to it right now. */
+function MaintenanceHistoryCard({ plantId, plantName }) {
+  const tasks = useTasks(useMemo(() => ({ plantId }), [plantId]));
+
+  const { live, past } = useMemo(() => {
+    const rows = tasks.data || [];
+    return {
+      live: rows.filter((t) => ["PENDING", "IN_PROGRESS"].includes(taskPhase(t.status))),
+      past: rows.filter((t) => !["PENDING", "IN_PROGRESS"].includes(taskPhase(t.status)))
+    };
+  }, [tasks.data]);
+
+  return (
+    <Card>
+      <CardHeader
+        title="Maintenance"
+        subtitle={
+          tasks.isLoading
+            ? "Loading…"
+            : live.length
+            ? `${live.length} open · ${past.length} closed`
+            : `Nothing open · ${past.length} closed`
+        }
+        action={<Wrench size={16} className="text-slate-400" />}
+      />
+
+      {tasks.isLoading ? (
+        <Spinner />
+      ) : !tasks.data?.length ? (
+        <EmptyState icon={Wrench} title="No work orders" description={`Nothing has been raised for ${plantName || "this plant"}.`} />
+      ) : (
+        <div className="space-y-4">
+          {live.length ? (
+            <div>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+                Open now
+              </p>
+              <ul className="space-y-2">
+                {live.map((t) => (
+                  <WorkOrderRow key={t._id} task={t} />
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {past.length ? (
+            <div>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+                History
+              </p>
+              <ul className="space-y-2">
+                {past.slice(0, 8).map((t) => (
+                  <WorkOrderRow key={t._id} task={t} />
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function WorkOrderRow({ task }) {
+  return (
+    <li>
+      <Link
+        to={`/admin/maintenance/${task._id}`}
+        className="flex items-start gap-3 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50"
+      >
+        <TaskStatusTag status={task.status} blockedReason={task.blockedReason} showDetail={false} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-slate-900">{task.title}</span>
+          <span className="block truncate text-xs text-slate-500">
+            {task.severity}
+            {task.assignedToUserId ? ` · ${task.assignedToUserId.display_name}` : " · unassigned"}
+            {task.resolvedAt
+              ? ` · closed ${relTime(task.resolvedAt)}`
+              : ` · raised ${relTime(task.createdAt)}`}
+          </span>
+        </span>
+      </Link>
+    </li>
   );
 }

@@ -127,6 +127,14 @@ const maintenanceTaskSchema = new mongoose.Schema(
       type: String,
       default: null
     },
+    // The readings and device state at the moment the alert fired, captured
+    // onto the work order so the maintainer opens one screen and sees the
+    // evidence. Without this they get "device offline" and have to go hunting
+    // for when it was last seen and how often it should report.
+    diagnostics: [{
+      label: { type: String, required: true },
+      value: { type: String, required: true }
+    }],
     // Required steps for safety-critical work, carried from the alert policy.
     // Stored now so the record is complete; enforcement at closure lands with
     // the safety workflow.

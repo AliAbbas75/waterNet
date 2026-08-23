@@ -16,6 +16,7 @@ import { PageHeader } from "../../components/ui/PageHeader.jsx";
 import { Card, CardHeader } from "../../components/ui/Card.jsx";
 import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
 import { TaskStatusTag } from "../../components/ui/TaskStatus.jsx";
+import { ChecklistCard, DiagnosticsCard } from "../../components/ui/WorkOrderDetail.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { Button } from "../../components/ui/Button.jsx";
@@ -24,6 +25,7 @@ import { Field, Input, Select, Textarea } from "../../components/ui/Input.jsx";
 import { Avatar } from "../../components/ui/Avatar.jsx";
 import {
   useAddTaskLog,
+  useCompleteChecklistItem,
   useResolveTask,
   useSetBlocked,
   useStartTask,
@@ -40,6 +42,7 @@ export default function TaskDetailPage() {
   const addLog = useAddTaskLog();
   const startTask = useStartTask();
   const setBlocked = useSetBlocked();
+  const checklist = useCompleteChecklistItem();
   const [resolveOpen, setResolveOpen] = useState(false);
   const [blockOpen, setBlockOpen] = useState(false);
   const [logNote, setLogNote] = useState("");
@@ -153,6 +156,15 @@ export default function TaskDetailPage() {
               ) : null}
             </div>
           </Card>
+
+          <DiagnosticsCard task={t} />
+
+          <ChecklistCard
+            task={t}
+            canEdit={["ASSIGNED", "IN_PROGRESS", "BLOCKED"].includes(t.status)}
+            pending={checklist.isPending ? checklist.variables?.index : null}
+            onToggle={(index, done) => checklist.mutate({ id: t._id, index, done })}
+          />
 
           <Card>
             <CardHeader title="Activity" subtitle={`${sortedLogs.length} log entries`} />

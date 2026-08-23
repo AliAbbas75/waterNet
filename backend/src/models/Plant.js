@@ -37,6 +37,18 @@ const plantSchema = new mongoose.Schema(
       ref: 'Device',
       default: null
     },
+    // The maintainer who covers this site. Islamabad's plants are spread across
+    // sectors, so work is routed by geography: a maintainer holds one or two
+    // neighbouring plants and is the default assignee for anything raised at
+    // them. Deliberately a default and not a rule — coverage describes who is
+    // responsible, and an admin still has to be able to send somebody else when
+    // that person is on leave or already on a critical job.
+    coveringMaintainerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      index: true
+    },
     // Set the moment a breach is confirmed, cleared when its ticket resolves.
     // Deliberately separate from operationalStatus: there is a gap between
     // knowing the water is unsafe and someone physically reaching the site, and

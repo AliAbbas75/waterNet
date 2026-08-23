@@ -7,6 +7,8 @@ import {
   ClipboardList,
   Cpu,
   Droplets,
+  Inbox,
+  PauseCircle,
   ShieldAlert
 } from "lucide-react";
 import { PageHeader } from "../../components/ui/PageHeader.jsx";
@@ -30,6 +32,9 @@ export default function DashboardPage() {
   const inProgress = useTasks({ status: "IN_PROGRESS" });
 
   const o = overview.data;
+  const sev = (name) => o?.alertsBySeverity?.find((x) => x._id === name)?.n || 0;
+  const critical = sev("CRITICAL");
+  const major = sev("MAJOR");
   const mapPlants = (plants.data || []).map((p) => ({ plant: p, overall: "NO_DATA" }));
 
   return (
@@ -61,22 +66,73 @@ export default function DashboardPage() {
           trend={o ? `${o.devices.availablePct}% online` : "Loading…"}
         />
         <Stat
-          label="Open alerts"
+          label="Live alerts"
           value={o ? o.openAlerts : "—"}
           icon={AlertTriangle}
-          accent={o && o.openAlerts > 0 ? "unsafe" : "neutral"}
+          accent={o && critical > 0 ? "unsafe" : o && o.openAlerts > 0 ? "warn" : "neutral"}
           to="/admin/alerts"
-          trend={o && o.unsafeStates > 0 ? `${o.unsafeStates} unsafe readings` : "All systems steady"}
+          trend={
+            o
+              ? critical > 0
+                ? `${critical} critical · ${major} major`
+                : o.openAlerts > 0
+                ? `${major} major`
+                : "All systems steady"
+              : "Loading…"
+          }
         />
         <Stat
-          label="Pending maintenance"
-          value={o ? o.pendingTasks : "—"}
+          label="Work in hand"
+          value={o ? o.work.pending + o.work.inProgress : "—"}
           icon={ClipboardList}
-          accent={o && o.pendingTasks > 0 ? "warn" : "neutral"}
+          accent={o && o.work.unrouted > 0 ? "warn" : "neutral"}
           to="/admin/maintenance"
-          trend={inProgress.data ? `${inProgress.data.length} in progress` : "—"}
+          trend={
+            o ? `${o.work.pending} pending · ${o.work.inProgress} in progress` : "Loading…"
+          }
         />
       </section>
+
+      {/* The three states that need a person to act rather than wait. Shown
+          only when non-zero: a row of permanent zeroes trains people to skip it. */}
+      {o && (o.work.unrouted > 0 || o.work.blocked > 0 || o.plants.advisories > 0) ? (
+        <section className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+          {o.plants.advisories > 0 ? (
+            <AttentionTile
+              to="/admin/plants"
+              tone="unsafe"
+              icon={ShieldAlert}
+              value={o.plants.advisories}
+              label={o.plants.advisories === 1 ? "plant under advisory" : "plants under advisory"}
+              hint="Water unsafe to drink"
+            />
+          ) : null}
+          {o.work.unrouted > 0 ? (
+            <AttentionTile
+              to="/admin/maintenance"
+              tone={o.work.overdueTriage > 0 ? "unsafe" : "warn"}
+              icon={Inbox}
+              value={o.work.unrouted}
+              label={o.work.unrouted === 1 ? "work order unrouted" : "work orders unrouted"}
+              hint={
+                o.work.overdueTriage > 0
+                  ? `${o.work.overdueTriage} past the triage deadline`
+                  : "Waiting for an assignee"
+              }
+            />
+          ) : null}
+          {o.work.blocked > 0 ? (
+            <AttentionTile
+              to="/admin/maintenance"
+              tone="warn"
+              icon={PauseCircle}
+              value={o.work.blocked}
+              label={o.work.blocked === 1 ? "job held up" : "jobs held up"}
+              hint="Started, then stopped"
+            />
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         <Card className="lg:col-span-2" padded={false}>
@@ -275,5 +331,36 @@ function PlantStatusBreakdown({ plants, loading }) {
         );
       })}
     </div>
+  );
+}
+
+/**
+ * A thing somebody has to act on, not a number to watch.
+ *
+ * Rendered only when non-zero — a row of permanent zeroes is scenery, and
+ * scenery is what people stop reading.
+ */
+function AttentionTile({ to, tone, icon: Icon, value, label, hint }) {
+  const tones = {
+    unsafe: "border-red-200 bg-red-50 text-red-700 hover:bg-red-100/70",
+    warn: "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100/70"
+  };
+  return (
+    <Link
+      to={to}
+      className={
+        "flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors " +
+        (tones[tone] || tones.warn)
+      }
+    >
+      <Icon size={20} className="shrink-0" />
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold">
+          {value} {label}
+        </span>
+        <span className="block text-xs opacity-80">{hint}</span>
+      </span>
+      <ArrowRight size={15} className="ml-auto shrink-0 opacity-60" />
+    </Link>
   );
 }

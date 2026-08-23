@@ -210,22 +210,67 @@ exports.exportCsv = async (req, res, next) => {
   }
 };
 
+// Work that still owes somebody something. Mirrors ticket.service's list.
+const LIVE_TASK_STATUSES = ["TRIAGE", "ASSIGNED", "IN_PROGRESS", "BLOCKED"];
+
 // GET /api/reports/overview — single-shot dashboard summary
 exports.overview = async (req, res, next) => {
   try {
-    const [plantsTotal, plantsByStatus, devicesTotal, devicesByAvail, openAlerts, unsafeStates, pendingTasks] =
-      await Promise.all([
-        Plant.countDocuments(),
-        Plant.aggregate([{ $group: { _id: "$operationalStatus", n: { $sum: 1 } } }]),
-        Device.countDocuments(),
-        Device.aggregate([{ $group: { _id: "$availability", n: { $sum: 1 } } }]),
-        Alert.countDocuments({ status: "OPEN" }),
-        WaterQualityState.countDocuments({ category: "UNSAFE" }),
-        MaintenanceTask.countDocuments({ status: { $in: ["ASSIGNED", "IN_PROGRESS"] } })
-      ]);
+    const [
+      plantsTotal,
+      plantsByStatus,
+      devicesTotal,
+      devicesByAvail,
+      openAlerts,
+      unsafeStates,
+      tasksByStatus,
+      alertsBySeverity,
+      workByType,
+      overdueTriage,
+      advisories,
+      uncovered
+    ] = await Promise.all([
+      Plant.countDocuments(),
+      Plant.aggregate([{ $group: { _id: "$operationalStatus", n: { $sum: 1 } } }]),
+      Device.countDocuments(),
+      Device.aggregate([{ $group: { _id: "$availability", n: { $sum: 1 } } }]),
+      Alert.countDocuments({ status: { $in: ["OPEN", "ACK", "CLEARED_PENDING_REVIEW"] } }),
+      WaterQualityState.countDocuments({ category: "UNSAFE" }),
+      MaintenanceTask.aggregate([{ $group: { _id: "$status", n: { $sum: 1 } } }]),
+      Alert.aggregate([
+        { $match: { status: { $in: ["OPEN", "ACK", "CLEARED_PENDING_REVIEW"] } } },
+        { $group: { _id: "$severity", n: { $sum: 1 } } }
+      ]),
+      // What kind of work is live, and where. This is the "which plant is
+      // undergoing what" question the dashboard could not answer.
+      MaintenanceTask.aggregate([
+        { $match: { status: { $in: LIVE_TASK_STATUSES } } },
+        {
+          $group: {
+            _id: { plantId: "$plantId", severity: "$severity" },
+            n: { $sum: 1 }
+          }
+        }
+      ]),
+      // An unrouted critical ticket past its triage deadline is itself an
+      // incident, so it gets its own number rather than hiding inside "pending".
+      MaintenanceTask.countDocuments({
+        status: "TRIAGE",
+        triageDueAt: { $ne: null, $lt: new Date() }
+      }),
+      Plant.countDocuments({ "advisory.active": true }),
+      Plant.countDocuments({ coveringMaintainerId: null })
+    ]);
+
+    const byStatus = tasksByStatus.reduce((acc, r) => {
+      acc[r._id] = r.n;
+      return acc;
+    }, {});
+
+    const phase = (statuses) => statuses.reduce((n, s) => n + (byStatus[s] || 0), 0);
 
     res.json({
-      plants: { total: plantsTotal, byStatus: plantsByStatus },
+      plants: { total: plantsTotal, byStatus: plantsByStatus, advisories, uncovered },
       devices: {
         total: devicesTotal,
         byAvailability: devicesByAvail,
@@ -236,8 +281,21 @@ exports.overview = async (req, res, next) => {
           : 0
       },
       openAlerts,
+      alertsBySeverity,
       unsafeStates,
-      pendingTasks
+      work: {
+        byStatus,
+        pending: phase(["TRIAGE", "ASSIGNED"]),
+        inProgress: phase(["IN_PROGRESS", "BLOCKED"]),
+        completed: byStatus.RESOLVED || 0,
+        // The two that need a person to act rather than a person to wait.
+        unrouted: byStatus.TRIAGE || 0,
+        blocked: byStatus.BLOCKED || 0,
+        overdueTriage,
+        byPlant: workByType
+      },
+      // Retained so an older bundle served from cache does not read zero work.
+      pendingTasks: phase(["TRIAGE", "ASSIGNED", "IN_PROGRESS", "BLOCKED"])
     });
   } catch (err) {
     next(err);
