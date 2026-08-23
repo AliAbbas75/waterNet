@@ -63,6 +63,21 @@ const EMAIL_HTML = (code, exp) =>
   `<p>It expires in ${exp} minutes. Do not share it.</p>`;
 
 /**
+ * Puts a login code in the logs.
+ *
+ * This hands anyone who can read the logs the ability to sign in as anyone who
+ * requests a code, so it is off unless asked for and says so every time rather
+ * than printing a bare number somebody might not recognise as a credential.
+ * It is a way to run without a verified sending domain, not a way to run.
+ */
+const LOG_OTP_TO_CONSOLE = process.env.OTP_LOG_TO_CONSOLE === "true";
+
+function logOtp(email, code, why) {
+  console.warn(`[OTP IN LOGS] ${why} — anyone reading this log can sign in as ${email}.`);
+  console.log(`OTP for ${email}: ${code}`);
+}
+
+/**
  * Gets the login code to the user, by whatever route is working.
  *
  * Transport choice and the fallback between them belong to the mailer; what is
@@ -78,17 +93,17 @@ async function deliverOtp(email, code) {
       subject: "Your WaterNet login code",
       html: EMAIL_HTML(code, OTP_EXP_MINUTES)
     });
+    // Asked for explicitly, so it is printed even when the mail went out. The
+    // alternative — relying on delivery failing — makes the log line an
+    // accident of a broken sender, which quietly stops the day it is fixed.
+    if (LOG_OTP_TO_CONSOLE) logOtp(email, code, `sent via ${transport}`);
     return { delivered: true, transport };
   } catch (err) {
     // Every configured transport was tried and refused. The code still has to
-    // reach somebody, so it goes to the logs — loudly, because in a hosted
-    // environment this means mail is misconfigured and signing in now requires
-    // an operator reading it out.
+    // reach somebody, so it goes to the logs regardless of the setting: the
+    // alternative is an account nobody can get into.
     console.error(`OTP delivery failed for ${email}: ${err.message}`);
-    console.warn(
-      `[OTP FALLBACK] No mail provider delivered the code — reading it from logs is the only way in.`
-    );
-    console.log(`OTP for ${email}: ${code}`);
+    logOtp(email, code, "nothing delivered it");
     return { delivered: false, transport: null };
   }
 }
