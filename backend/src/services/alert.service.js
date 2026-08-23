@@ -3,7 +3,7 @@ const MaintenanceTask = require("../models/MaintenanceTask");
 const Plant = require("../models/Plant");
 const Device = require("../models/Device");
 const InventoryItem = require("../models/InventoryItem");
-const { severityFor, ticketForAlert, opensTicketOnAck, ownerRoleFor } = require("./alert.policy");
+const { severityFor, ticketForAlert } = require("./alert.policy");
 const { assignTicket, cancelTicket, LIVE_TICKET_STATUSES } = require("./ticket.service");
 const { logAudit } = require("./audit.service");
 const { emit: socketEmit } = require("./socket.service");
@@ -21,9 +21,6 @@ const REQUIRES_HUMAN_REVIEW = new Set(["QUALITY_UNSAFE"]);
 // Any status that is not a closed alert. Used for de-duplication so a condition
 // that persists does not spawn one alert per detection cycle.
 const LIVE_STATUSES = ["OPEN", "ACK", "CLEARED_PENDING_REVIEW"];
-
-// Roles that may take ownership of admin-side work directly.
-const ADMIN_ROLES = ["ADMIN", "SUPER_ADMIN"];
 
 function scopeOf(alert) {
   return {
@@ -132,8 +129,8 @@ async function raiseAlert({
  * types that raise no ticket, unless `force` — a person acting by hand.
  *
  * The ticket starts in TRIAGE with no assignee: an admin routes it. That is the
- * whole point of the bridge — an alert now produces something a person owns,
- * instead of a row with an Acknowledge button.
+ * whole point of the bridge — an alert produces something a named person owns,
+ * rather than a row someone can wave away.
  */
 async function openTicketForAlert(
   alert,
@@ -196,23 +193,18 @@ async function openTicketForAlert(
 /**
  * Guarantees an alert has somewhere for its work to live.
  *
- * Reuses the live ticket when there is one — acknowledging an alert twice must
- * not open two work orders for the same fault. A ticket that has already closed
+ * Reuses the live ticket when there is one — reassigning an alert must not open
+ * a second work order for the same fault. A ticket that has already closed
  * while the alert stayed live means the condition outlived the response, so a
  * fresh linked ticket is opened rather than reviving a finished one.
  */
-async function ensureTicketForAlert(
-  alert,
-  { actorUserId = null, req = null, reason = null, force = false } = {}
-) {
+async function ensureTicketForAlert(alert, { actorUserId = null, req = null, reason = null } = {}) {
   if (alert.ticketId) {
     const existing = await MaintenanceTask.findById(alert.ticketId);
     if (existing && LIVE_TICKET_STATUSES.includes(existing.status)) {
       return { ticket: existing, created: false };
     }
   }
-
-  if (!force && !opensTicketOnAck(alert.type)) return { ticket: null, created: false };
 
   const ctx = await contextForAlert(alert);
   const ticket = await openTicketForAlert(alert, ctx, {
@@ -355,71 +347,6 @@ async function clearAlerts({
 }
 
 /**
- * A person takes an alert on — and that opens the work order.
- *
- * Acknowledging used to mean nothing except a status change: the alert left the
- * OPEN filter and no work existed anywhere. Now it produces a pending ticket,
- * routed by the nature of the alert. Admin-side work (restocking, paperwork) is
- * assigned to the acknowledging admin, because a person clicking the button is
- * present and is the obvious owner. Field work stays in TRIAGE awaiting
- * dispatch to a named maintainer — the system does not pick who drives out.
- */
-async function acknowledgeAlert({ alertId, user, req = null }) {
-  const alert = await Alert.findById(alertId);
-  if (!alert) return { error: "NOT_FOUND" };
-  if (alert.status === "RESOLVED") return { error: "ALREADY_RESOLVED" };
-
-  alert.status = "ACK";
-  alert.ackAt = new Date();
-  alert.ackByUserId = user._id;
-
-  const { ticket, created } = await ensureTicketForAlert(alert, {
-    actorUserId: user._id,
-    req,
-    reason: "alert acknowledged"
-  });
-
-  let selfAssigned = false;
-  if (
-    ticket &&
-    ticket.status === "TRIAGE" &&
-    ticket.ownerRole === "ADMIN" &&
-    ADMIN_ROLES.includes(user.role)
-  ) {
-    const result = await assignTicket({
-      task: ticket,
-      assignedToUserId: user._id,
-      actorUserId: user._id,
-      req,
-      note: "Taken on when the alert was acknowledged."
-    });
-    selfAssigned = !result.error;
-  }
-
-  if (ticket) alert.ticketId = ticket._id;
-  await alert.save();
-
-  await logAudit({
-    event: "alert.acknowledged",
-    req,
-    actorUserId: user._id,
-    targetType: "ALERT",
-    targetId: alert._id,
-    meta: {
-      type: alert.type,
-      severity: alert.severity,
-      ticketId: ticket ? String(ticket._id) : null,
-      ticketCreated: created,
-      ownerRole: ticket ? ticket.ownerRole : ownerRoleFor(alert.type),
-      selfAssigned
-    }
-  });
-
-  socketEmit("alert:updated", { alert });
-  return { alert, ticket, ticketCreated: created, selfAssigned };
-}
-
-/**
  * The primary way an alert is answered: hand it to a person.
  *
  * Opens the work order if the alert has none, routes it to the chosen assignee
@@ -432,13 +359,12 @@ async function dispatchAlert({ alertId, assignedToUserId, note = null, user, req
   if (!alert) return { error: "NOT_FOUND" };
   if (alert.status === "RESOLVED") return { error: "ALREADY_RESOLVED" };
 
-  // force: assigning by hand is a deliberate act, so it may open a ticket even
-  // for a type that never raises one by itself.
+  // Assigning by hand is a deliberate act, so it opens a ticket even for a type
+  // that never raises one by itself.
   const { ticket, created } = await ensureTicketForAlert(alert, {
     actorUserId: user._id,
     req,
-    reason: "alert assigned to a person",
-    force: true
+    reason: "alert assigned to a person"
   });
   if (!ticket) return { error: "NO_TICKET" };
 
@@ -582,7 +508,6 @@ module.exports = {
   setAdvisory,
   clearAdvisory,
   clearAlerts,
-  acknowledgeAlert,
   dispatchAlert,
   resolveAlert,
   resolveAlertForTicket,

@@ -19,21 +19,18 @@ import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { Modal } from "../../components/ui/Modal.jsx";
 import { Field, Select, Textarea } from "../../components/ui/Input.jsx";
-import {
-  useAckAlert,
-  useAlerts,
-  useDispatchAlert,
-  useResolveAlert
-} from "../../hooks/useAlerts.js";
+import { useAlerts, useDispatchAlert, useResolveAlert } from "../../hooks/useAlerts.js";
 import { useAuditTrail } from "../../hooks/useAudit.js";
 import { useUsers } from "../../hooks/useUsers.js";
 import { relTime } from "../../lib/format.js";
 
 // The monitored condition stopped on its own, but a person still has to
 // record what was done before the alert can close.
+// ACK is set by assigning the alert, never by a button that only marked it as
+// seen — so it is labelled by what is actually true of it: somebody has it.
 const STATUS_LABEL = {
   OPEN: "Open",
-  ACK: "Acknowledged",
+  ACK: "Being handled",
   CLEARED_PENDING_REVIEW: "Awaiting review",
   RESOLVED: "Resolved"
 };
@@ -50,13 +47,20 @@ const TICKET_STATUS = {
 
 const personName = (u) => (u ? u.display_name || u.email : null);
 
+// Whose work this is, per the alert policy — used to put the right people at
+// the top of the assignee list.
+const OWNER_GROUP_LABEL = {
+  MAINTAINER: "Maintainers — field work",
+  MANAGER: "Managers — stock and procurement",
+  ADMIN: "Admins"
+};
+
 export default function AlertsPage() {
   const [status, setStatus] = useState("OPEN");
   const [type, setType] = useState("");
   const [severity, setSeverity] = useState("");
   const filters = useMemo(() => ({ status, type, severity }), [status, type, severity]);
   const alerts = useAlerts(filters);
-  const ack = useAckAlert();
   const dispatch = useDispatchAlert();
   const resolve = useResolveAlert();
 
@@ -139,31 +143,11 @@ export default function AlertsPage() {
           }
           return (
             <div className="inline-flex gap-1.5">
-              {a.status === "OPEN" ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={async () => {
-                    const res = await ack.mutateAsync(a._id);
-                    setOutcome({
-                      kind: "ack",
-                      ticketId: res.ticketId,
-                      created: res.ticketCreated,
-                      selfAssigned: res.selfAssigned
-                    });
-                  }}
-                  loading={ack.isPending && ack.variables === a._id}
-                  leftIcon={<Check size={14} />}
-                  title="Take this on — opens a work order for it"
-                >
-                  Acknowledge
-                </Button>
-              ) : null}
               <Button
                 size="sm"
                 onClick={() => setDispatching(a)}
                 leftIcon={<UserPlus size={14} />}
-                title="Hand this to a maintainer"
+                title="Hand this to the person who will deal with it"
               >
                 {assigned ? "Reassign" : "Assign"}
               </Button>
@@ -190,14 +174,14 @@ export default function AlertsPage() {
         }
       }
     ],
-    [ack]
+    []
   );
 
   return (
     <>
       <PageHeader
         title="Alerts"
-        description="Every alert here is answered by giving it to a person. Acknowledging opens the work order; assigning sends it out; the alert closes when the work is done."
+        description="Every alert here is answered by giving it to a person. Assigning opens the work order and sends it out; the alert closes when that work is done."
         action={<BellRing size={20} className="text-slate-400" />}
       />
 
@@ -208,7 +192,7 @@ export default function AlertsPage() {
           <Select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">All statuses</option>
             <option value="OPEN">Open</option>
-            <option value="ACK">Acknowledged</option>
+            <option value="ACK">Being handled</option>
             <option value="CLEARED_PENDING_REVIEW">Awaiting review</option>
             <option value="RESOLVED">Resolved</option>
           </Select>
@@ -318,15 +302,7 @@ function OutcomeBanner({ outcome, onDismiss }) {
   }, [outcome, onDismiss]);
 
   let text;
-  if (outcome.kind === "ack") {
-    text = outcome.ticketId
-      ? outcome.selfAssigned
-        ? "Acknowledged. A work order was opened and assigned to you."
-        : outcome.created
-        ? "Acknowledged. A work order was opened and is waiting to be assigned."
-        : "Acknowledged. This alert already had a work order."
-      : "Acknowledged. This type carries no work order — it is recorded in the audit log.";
-  } else if (outcome.kind === "dispatch") {
+  if (outcome.kind === "dispatch") {
     text = `Assigned to ${outcome.assignedTo}. The alert stays open until the work order is resolved.`;
   } else {
     text = outcome.cancelledTicketId
@@ -374,7 +350,7 @@ function DispatchModal({ alert, onClose, onConfirm, loading }) {
   // choice is the one under the cursor.
   const candidates = useMemo(() => {
     const all = (users.data || []).filter(
-      (u) => ["MAINTAINER", "ADMIN"].includes(u.role) && u.active !== false
+      (u) => ["MAINTAINER", "MANAGER", "ADMIN"].includes(u.role) && u.active !== false
     );
     const preferred = all.filter((u) => u.role === ownerRole);
     const others = all.filter((u) => u.role !== ownerRole);
@@ -426,7 +402,7 @@ function DispatchModal({ alert, onClose, onConfirm, loading }) {
         >
           <option value="">{users.isLoading ? "Loading people…" : "Choose a person…"}</option>
           {candidates.preferred.length ? (
-            <optgroup label={ownerRole === "MAINTAINER" ? "Maintainers" : "Admins"}>
+            <optgroup label={OWNER_GROUP_LABEL[ownerRole] || "Suggested"}>
               {candidates.preferred.map((u) => (
                 <option key={u._id} value={u._id}>
                   {personName(u)}
@@ -536,7 +512,7 @@ function CloseModal({ alert, onClose, onConfirm, loading }) {
 
 const EVENT_LABEL = {
   "alert.raised": "Raised by the system",
-  "alert.acknowledged": "Acknowledged",
+  "alert.acknowledged": "Acknowledged (before assignment replaced it)",
   "alert.dispatched": "Assigned to a person",
   "alert.resolved": "Closed by hand, without dispatch",
   "alert.resolved_by_ticket": "Resolved — the work order was completed",

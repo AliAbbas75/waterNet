@@ -6,7 +6,7 @@ const { emit: socketEmit } = require("./socket.service");
 // Roles that can hold a work order. PUBLIC obviously cannot; SUPER_ADMIN can,
 // but assigning the top account routine field work is almost always a mistake,
 // so it is not offered as a target.
-const ASSIGNABLE_ROLES = ["MAINTAINER", "ADMIN"];
+const ASSIGNABLE_ROLES = ["MAINTAINER", "MANAGER", "ADMIN"];
 
 // Anything that is not finished. A ticket in one of these still owes someone work.
 const LIVE_TICKET_STATUSES = ["TRIAGE", "ASSIGNED", "IN_PROGRESS", "BLOCKED"];

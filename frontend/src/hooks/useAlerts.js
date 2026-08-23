@@ -28,23 +28,13 @@ export function useAlerts(filters = {}) {
   });
 }
 
-// Acknowledging, assigning and closing all move work between queues, so each
-// one invalidates the task lists too — otherwise the maintenance board keeps
-// showing a ticket that has just been routed somewhere else.
+// Assigning and closing both move work between queues, so each invalidates the
+// task lists too — otherwise the maintenance board keeps showing a ticket that
+// has just been routed somewhere else.
 function invalidateAlertsAndWork(qc) {
   qc.invalidateQueries({ queryKey: ["alerts"] });
   qc.invalidateQueries({ queryKey: ["tasks"] });
   qc.invalidateQueries({ queryKey: ["my-tasks"] });
-}
-
-export function useAckAlert() {
-  const qc = useQueryClient();
-  return useMutation({
-    // Acknowledging opens the work order now — it is no longer a status flip
-    // that leaves the alert with nowhere to go.
-    mutationFn: (id) => api.patch(`/api/alerts/${id}/ack`),
-    onSuccess: () => invalidateAlertsAndWork(qc)
-  });
 }
 
 export function useDispatchAlert() {

@@ -2,7 +2,7 @@ const User = require("../models/User");
 const { logAudit } = require("../services/audit.service");
 const { isBlockchainEnabled, setRoleOnChain, setActiveOnChain } = require("../config/blockchain");
 
-const ALLOWED_ROLES = ["SUPER_ADMIN", "ADMIN", "MAINTAINER", "PUBLIC"];
+const ALLOWED_ROLES = ["SUPER_ADMIN", "ADMIN", "MANAGER", "MAINTAINER", "PUBLIC"];
 
 exports.listUsers = async (req, res, next) => {
   try {

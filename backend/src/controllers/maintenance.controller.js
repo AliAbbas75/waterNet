@@ -19,9 +19,9 @@ exports.createTask = async (req, res, next) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Check assignee exists and is MAINTAINER or ADMIN
+    // Check the assignee exists and is someone who can hold work
     const assignee = await User.findById(assignedToUserId);
-    if (!assignee || !['MAINTAINER', 'ADMIN'].includes(assignee.role)) {
+    if (!assignee || !['MAINTAINER', 'MANAGER', 'ADMIN'].includes(assignee.role)) {
       return res.status(400).json({ error: 'Invalid assignee' });
     }
 
@@ -34,7 +34,7 @@ exports.createTask = async (req, res, next) => {
       origin: 'MANUAL',
       severity: req.body.severity || 'MINOR',
       // A hand-created task belongs to whoever it was written for.
-      ownerRole: assignee.role === 'MAINTAINER' ? 'MAINTAINER' : 'ADMIN',
+      ownerRole: ['MAINTAINER', 'MANAGER'].includes(assignee.role) ? assignee.role : 'ADMIN',
       assignedToUserId,
       assignedByUserId: req.user._id,
       plantId,

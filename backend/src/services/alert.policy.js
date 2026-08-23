@@ -64,12 +64,12 @@ const POLICY = {
 
   LOW_INVENTORY: {
     // Stock alerts fire in bulk when a delivery is late, so they do not each
-    // raise a work order the moment they are detected. Acknowledging one is a
-    // person saying "I am dealing with this", and that is what opens the ticket.
+    // raise a work order the moment they are detected. One is opened when an
+    // admin assigns the alert to whoever is going to chase the delivery.
     severity: "MINOR",
     raisesTicket: false,
-    // Restocking is procurement, not a site visit: it stays with an admin.
-    ownerRole: "ADMIN",
+    // Restocking is procurement, not a site visit: it belongs to a manager.
+    ownerRole: "MANAGER",
     title: (ctx) => `Restock — ${ctx.itemName || "inventory item"}`,
     description: (ctx) =>
       `${ctx.itemName || "This item"} has fallen to or below its reorder point. ` +
@@ -82,12 +82,10 @@ const POLICY = {
   AVAILABILITY_CHANGE: {
     severity: "INFO",
     raisesTicket: false,
-    // Acknowledging this records that a decision already carried out has been
-    // seen. There is no outstanding work, so manufacturing a work order for it
-    // would fill the queue with tickets that are complete before they open.
-    // An admin who does want work from it can still assign one explicitly.
-    ticketOnAck: false,
-    ownerRole: "ADMIN"
+    // Records a decision that has already been carried out, so nothing is
+    // raised for it automatically. An admin who does want follow-up work can
+    // still assign it, which opens a ticket like any other.
+    ownerRole: "MANAGER"
   }
 };
 
@@ -103,14 +101,6 @@ function severityFor(type) {
 /** Which role the work belongs to — "the nature of the alert", made explicit. */
 function ownerRoleFor(type) {
   return policyFor(type).ownerRole || "MAINTAINER";
-}
-
-/**
- * Whether acknowledging this type should open a work order. Default is yes:
- * an alert a person has taken on is work, and work needs somewhere to live.
- */
-function opensTicketOnAck(type) {
-  return policyFor(type).ticketOnAck !== false;
 }
 
 function triageDueAt(severity, from = new Date()) {
@@ -160,7 +150,6 @@ module.exports = {
   policyFor,
   severityFor,
   ownerRoleFor,
-  opensTicketOnAck,
   triageDueAt,
   ticketForAlert
 };

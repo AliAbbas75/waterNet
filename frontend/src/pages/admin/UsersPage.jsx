@@ -23,6 +23,7 @@ import { relTime, shortAddr } from "../../lib/format.js";
 const ROLE_VARIANT = {
   SUPER_ADMIN: "unsafe",
   ADMIN: "brand",
+  MANAGER: "warn",
   MAINTAINER: "info",
   PUBLIC: "muted"
 };
@@ -156,6 +157,7 @@ export default function UsersPage() {
             <option value="">All roles</option>
             <option value="SUPER_ADMIN">Super admin</option>
             <option value="ADMIN">Admin</option>
+            <option value="MANAGER">Manager</option>
             <option value="MAINTAINER">Maintainer</option>
             <option value="PUBLIC">Public</option>
           </Select>
@@ -273,6 +275,7 @@ function RoleModal({ open, user, isSuper, onClose, onConfirm, loading }) {
         <Select value={role} onChange={(e) => setRole(e.target.value)}>
           <option value="PUBLIC">Public — citizens / society residents</option>
           <option value="MAINTAINER">Maintainer — field technicians</option>
+          <option value="MANAGER">Manager — stock and procurement</option>
           <option value="ADMIN">Admin — operations team</option>
           {isSuper ? <option value="SUPER_ADMIN">Super admin — system owner</option> : null}
         </Select>
@@ -366,6 +369,7 @@ function RegisterUserModal({ open, onClose, onConfirm, loading, errorMsg, succes
           <Select value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="PUBLIC">Public — citizens / society residents</option>
             <option value="MAINTAINER">Maintainer — field technicians</option>
+            <option value="MANAGER">Manager — stock and procurement</option>
             <option value="ADMIN">Admin — operations team</option>
           </Select>
         </Field>
@@ -431,6 +435,7 @@ function InviteUserModal({ open, isSuper, onClose, onConfirm, loading, errorMsg,
         <Field label="Role">
           <Select value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="MAINTAINER">Maintainer — field technicians</option>
+            <option value="MANAGER">Manager — stock and procurement</option>
             {isSuper ? <option value="ADMIN">Admin — operations team</option> : null}
           </Select>
         </Field>

@@ -8,6 +8,9 @@ const REGISTRY_ABI = [
   "function isActive(address user) view returns (bool)"
 ];
 
+// The deployed UserRegistry rejects any role id above 3 and its bytecode is
+// immutable, so the chain records four grades and cannot learn a fifth without
+// a redeploy and a full re-migration of every user.
 const ROLE_MAP = {
   0: "PUBLIC",
   1: "MAINTAINER",
@@ -15,9 +18,18 @@ const ROLE_MAP = {
   3: "SUPER_ADMIN"
 };
 
+// MANAGER is an app-side role. It records on-chain as the nearest grade that
+// does NOT over-state its privilege — the registry's own `onlyAdmin` check is
+// `role >= ROLE_ADMIN`, so mapping MANAGER to 2 would hand it the power to
+// register users and change roles on the chain itself. Mapping down is safe;
+// mapping up would be a privilege escalation written to an immutable ledger.
+//
+// This is only ever written, never read for authorization: `roleOf` is not
+// consulted at login, and MongoDB stays the authority on what a role means.
 const ROLE_TO_ID = {
   PUBLIC: 0,
   MAINTAINER: 1,
+  MANAGER: 1,
   ADMIN: 2,
   SUPER_ADMIN: 3
 };

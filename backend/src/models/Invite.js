@@ -9,7 +9,9 @@ const inviteSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["MAINTAINER", "ADMIN"],
+      // PUBLIC and SUPER_ADMIN are deliberately absent: the public role needs
+      // no invite, and the top account is not something you hand out by email.
+      enum: ["MAINTAINER", "MANAGER", "ADMIN"],
       required: true
     },
     tokenHash: {

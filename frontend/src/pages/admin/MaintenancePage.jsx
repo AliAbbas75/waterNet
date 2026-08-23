@@ -163,7 +163,7 @@ function CreateTaskModal({ open, onClose }) {
     if (open) setForm({ title: "", description: "", assignedToUserId: "", plantId: "", deviceId: "" });
   }, [open]);
 
-  const assignableUsers = (users.data || []).filter((u) => ["MAINTAINER", "ADMIN"].includes(u.role));
+  const assignableUsers = (users.data || []).filter((u) => ["MAINTAINER", "MANAGER", "ADMIN"].includes(u.role));
   const devicesForPlant = (devices.data || []).filter((d) => !form.plantId || (d.plantId && (d.plantId._id || d.plantId) === form.plantId));
 
   async function onSubmit(e) {

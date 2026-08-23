@@ -15,11 +15,15 @@ function requireRole(...requiredRoles) {
       }
 
       const userRole = req.user.role;
+      // App-side privilege ladder. These numbers are NOT the on-chain role ids
+      // in config/blockchain.js — the deployed registry only knows four values
+      // and cannot be renumbered, so the two are deliberately kept apart.
       const roleHierarchy = {
         PUBLIC: 0,
         MAINTAINER: 1,
-        ADMIN: 2,
-        SUPER_ADMIN: 3
+        MANAGER: 2,
+        ADMIN: 3,
+        SUPER_ADMIN: 4
       };
 
       const userLevel = roleHierarchy[userRole] ?? -1;

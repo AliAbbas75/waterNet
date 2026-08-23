@@ -41,12 +41,12 @@ const maintenanceTaskSchema = new mongoose.Schema(
     },
     // Which role the work belongs to, decided by the alert policy rather than
     // by whoever happens to be looking at the queue. Field work (a site visit,
-    // a probe swap) is a maintainer's; procurement and paperwork stay with an
-    // admin. It drives who the assignee picker offers first, and lets an admin
-    // take an admin-side ticket on directly instead of routing it to nobody.
+    // a probe swap) is a maintainer's; procurement and restocking is a
+    // manager's. It drives who the assignee picker offers first, so the obvious
+    // choice is the one already under the cursor.
     ownerRole: {
       type: String,
-      enum: ['ADMIN', 'MAINTAINER'],
+      enum: ['ADMIN', 'MANAGER', 'MAINTAINER'],
       default: 'MAINTAINER'
     },
     // Mirrors the severity of the alert that raised this, so the queue can sort

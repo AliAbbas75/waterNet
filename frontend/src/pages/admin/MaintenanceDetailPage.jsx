@@ -228,7 +228,7 @@ export default function MaintenanceDetailPage() {
         open={assignOpen}
         task={t}
         logs={sortedLogs}
-        users={(users.data || []).filter((u) => ["MAINTAINER", "ADMIN"].includes(u.role))}
+        users={(users.data || []).filter((u) => ["MAINTAINER", "MANAGER", "ADMIN"].includes(u.role))}
         onClose={() => setAssignOpen(false)}
         onConfirm={async ({ assignedToUserId, handoffLogId, handoffNote }) => {
           await assign.mutateAsync({ id, assignedToUserId, handoffLogId, handoffNote });

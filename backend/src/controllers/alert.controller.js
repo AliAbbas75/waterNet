@@ -1,7 +1,6 @@
 const Alert = require("../models/Alert");
 const MaintenanceTask = require("../models/MaintenanceTask");
 const {
-  acknowledgeAlert: acknowledge,
   dispatchAlert: dispatch,
   resolveAlert: resolve
 } = require("../services/alert.service");
@@ -36,10 +35,10 @@ exports.getAlerts = async (req, res, next) => {
     if (plantId) query.plantId = plantId;
     if (deviceId) query.deviceId = deviceId;
 
-    // A maintainer sees the alerts behind their own work, not the whole
-    // network's. The global list is an operations view; their surface is the
-    // tickets they have been assigned, with severity on every row.
-    if (req.user.role === 'MAINTAINER') {
+    // Staff who hold work see the alerts behind their own tickets, not the
+    // whole network's. The global list is an operations view; their surface is
+    // the work they have been assigned, with severity on every row.
+    if (['MAINTAINER', 'MANAGER'].includes(req.user.role)) {
       const myTickets = await MaintenanceTask.find({
         assignedToUserId: req.user._id,
         status: { $in: ['ASSIGNED', 'IN_PROGRESS', 'BLOCKED'] },
@@ -64,27 +63,6 @@ exports.getAlerts = async (req, res, next) => {
     });
 
     res.json({ alerts });
-  } catch (err) {
-    next(err);
-  }
-};
-
-exports.ackAlert = async (req, res, next) => {
-  try {
-    const result = await acknowledge({ alertId: req.params.id, user: req.user, req });
-    if (result.error === 'NOT_FOUND') return res.status(404).json({ error: 'Alert not found' });
-    if (result.error === 'ALREADY_RESOLVED') {
-      return res.status(409).json({ error: 'Alert is already resolved' });
-    }
-    const alert = await populate(result.alert._id);
-    // The caller is told what acknowledging produced, so the UI can say where
-    // the alert went instead of leaving the person to guess.
-    res.json({
-      alert,
-      ticketId: result.ticket ? String(result.ticket._id) : null,
-      ticketCreated: result.ticketCreated,
-      selfAssigned: result.selfAssigned
-    });
   } catch (err) {
     next(err);
   }
