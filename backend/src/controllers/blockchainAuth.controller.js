@@ -73,8 +73,20 @@ const EMAIL_HTML = (code, exp) =>
 const LOG_OTP_TO_CONSOLE = process.env.OTP_LOG_TO_CONSOLE === "true";
 
 function logOtp(email, code, why) {
-  console.warn(`[OTP IN LOGS] ${why} — anyone reading this log can sign in as ${email}.`);
-  console.log(`OTP for ${email}: ${code}`);
+  // Printed as a banner rather than a line. A hosted log is a fast-moving wall
+  // of request lines and socket churn, and a code that has to be searched for
+  // is not really in the log — the whole point of putting it here is to read it
+  // off the screen while signing in on a phone.
+  const rule = "=".repeat(58);
+  console.log("");
+  console.log(rule);
+  console.log(`  LOGIN CODE      ${code.split("").join(" ")}`);
+  console.log(`  for             ${email}`);
+  console.log(`  expires in      ${OTP_EXP_MINUTES} minutes`);
+  console.log(`  why it is here  ${why}`);
+  console.log(`  ${email} can be signed in as by anyone reading this.`);
+  console.log(rule);
+  console.log("");
 }
 
 /**
