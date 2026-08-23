@@ -6,8 +6,19 @@ import clsx from "clsx";
  * - mobile : stacked card rows
  *
  * Each column = { key, header, render(row), className, cellClassName, headerClassName, mobileLabel }
+ *
+ * `rowClassName(row)` styles a row by what it contains — used to let finished
+ * work read quieter than work that still needs doing, in both layouts.
  */
-export function DataTable({ columns, rows, rowKey = (r) => r._id, onRowClick, empty, dense }) {
+export function DataTable({
+  columns,
+  rows,
+  rowKey = (r) => r._id,
+  onRowClick,
+  empty,
+  dense,
+  rowClassName
+}) {
   if (!rows?.length) {
     return empty || null;
   }
@@ -30,7 +41,8 @@ export function DataTable({ columns, rows, rowKey = (r) => r._id, onRowClick, em
               onClick={onRowClick ? () => onRowClick(r) : undefined}
               className={clsx(
                 onRowClick && "cursor-pointer hover:bg-slate-50",
-                dense ? "[&>td]:py-2" : "[&>td]:py-3"
+                dense ? "[&>td]:py-2" : "[&>td]:py-3",
+                rowClassName && rowClassName(r)
               )}
             >
               {columns.map((c) => (
@@ -48,7 +60,11 @@ export function DataTable({ columns, rows, rowKey = (r) => r._id, onRowClick, em
           <li
             key={rowKey(r)}
             onClick={onRowClick ? () => onRowClick(r) : undefined}
-            className={clsx("p-4 flex flex-col gap-2", onRowClick && "active:bg-slate-50")}
+            className={clsx(
+              "p-4 flex flex-col gap-2",
+              onRowClick && "active:bg-slate-50",
+              rowClassName && rowClassName(r)
+            )}
           >
             {columns.map((c) => (
               <div key={c.key} className="flex justify-between gap-3 items-start">

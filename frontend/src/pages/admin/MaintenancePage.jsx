@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Inbox,
@@ -17,7 +18,13 @@ import { Card } from "../../components/ui/Card.jsx";
 import { Input, Select, Field, Textarea } from "../../components/ui/Input.jsx";
 import { DataTable } from "../../components/ui/DataTable.jsx";
 import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
-import { PHASE_LABEL, PHASE_ORDER, TaskStatusTag } from "../../components/ui/TaskStatus.jsx";
+import {
+  CLOSED_PHASES,
+  OPEN_PHASES,
+  PHASE_LABEL,
+  TaskStatusTag,
+  isOpenStatus
+} from "../../components/ui/TaskStatus.jsx";
 import { Modal } from "../../components/ui/Modal.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
@@ -37,6 +44,11 @@ const PHASE_STATUSES = {
   CANCELLED: ["CANCELLED"]
 };
 
+// The two groups are composed from the phases above rather than listed again:
+// a status can never end up counted by a group but by no tab within it.
+PHASE_STATUSES.OPEN = OPEN_PHASES.flatMap((p) => PHASE_STATUSES[p]);
+PHASE_STATUSES.CLOSED = CLOSED_PHASES.flatMap((p) => PHASE_STATUSES[p]);
+
 const SORTS = [
   { key: "urgent", label: "Most urgent first" },
   { key: "newest", label: "Newest first" },
@@ -47,14 +59,25 @@ const SORTS = [
 const PER_PAGE = 25;
 
 export default function MaintenancePage() {
-  const [phase, setPhase] = useState("");
-  const [plantId, setPlantId] = useState("");
-  const [severity, setSeverity] = useState("");
-  const [assignee, setAssignee] = useState("");
-  const [sort, setSort] = useState("urgent");
-  const [attention, setAttention] = useState(false);
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  // The board reads its opening state from the URL, so a link can point at one
+  // plant's closed work and actually land there. Read once into state rather
+  // than driving every control from the params, which would make each keystroke
+  // a navigation.
+  const [params, setParams] = useSearchParams();
+  const initial = (key, fallback = "") => params.get(key) ?? fallback;
+
+  // Opens on live work. The board used to default to everything, ordered by
+  // severity, so a resolved CRITICAL sat above an untouched MINOR and the first
+  // page filled with jobs nobody had to act on. Finished work is still one
+  // click away — it is just no longer in front of the work that is not.
+  const [phase, setPhase] = useState(() => initial("phase", "OPEN"));
+  const [plantId, setPlantId] = useState(() => initial("plantId"));
+  const [severity, setSeverity] = useState(() => initial("severity"));
+  const [assignee, setAssignee] = useState(() => initial("assignee"));
+  const [sort, setSort] = useState(() => initial("sort", "urgent"));
+  const [attention, setAttention] = useState(() => initial("attention") === "true");
+  const [search, setSearch] = useState(() => initial("search"));
+  const [debouncedSearch, setDebouncedSearch] = useState(() => initial("search"));
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
 
@@ -73,6 +96,26 @@ export default function MaintenancePage() {
   // now has one page is a blank screen with no explanation.
   useEffect(() => {
     setPage(1);
+  }, [phase, plantId, severity, assignee, sort, attention, debouncedSearch]);
+
+  // Mirror the filters back into the URL so the view can be linked and survives
+  // a refresh. Replace rather than push: filtering is not navigation, and back
+  // should leave the board rather than undo six keystrokes one at a time.
+  useEffect(() => {
+    const next = {};
+    if (phase !== "OPEN") next.phase = phase;
+    if (plantId) next.plantId = plantId;
+    if (severity) next.severity = severity;
+    if (assignee) next.assignee = assignee;
+    if (sort !== "urgent") next.sort = sort;
+    if (attention) next.attention = "true";
+    if (debouncedSearch) next.search = debouncedSearch;
+    setParams(next, { replace: true });
+    // setParams is deliberately not a dependency: react-router rebuilds it
+    // whenever the URL changes, so listing it would have this effect retrigger
+    // itself on its own write. A stale copy is safe here because `next` is a
+    // complete object rather than an updater — it never reads the old params.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, plantId, severity, assignee, sort, attention, debouncedSearch]);
 
   const filters = useMemo(
@@ -102,6 +145,13 @@ export default function MaintenancePage() {
   const unrouted = counts.TRIAGE || 0;
   const blocked = counts.BLOCKED || 0;
 
+  // Whether anything besides the tab is narrowing the list. An empty Open tab
+  // means "all caught up" only when nothing else is filtering it — otherwise it
+  // just means this plant, or this assignee, has nothing open.
+  const hasNarrowingFilter = Boolean(
+    plantId || severity || assignee || debouncedSearch || attention
+  );
+
   const assignableUsers = (users.data || []).filter((u) =>
     ["MAINTAINER", "MANAGER", "ADMIN"].includes(u.role)
   );
@@ -112,7 +162,7 @@ export default function MaintenancePage() {
         key: "severity",
         header: "",
         cellClassName: "w-1 p-0",
-        render: (t) => <SeverityStripe severity={t.severity} />
+        render: (t) => <SeverityStripe severity={t.severity} muted={!isOpenStatus(t.status)} />
       },
       {
         key: "title",
@@ -226,23 +276,56 @@ export default function MaintenancePage() {
       ) : null}
 
       <Card className="mb-4">
-        {/* Categorisation first: most people arrive wanting one stage, not a
-            search. Counts are whole-board, so a tab stays meaningful while a
-            narrower filter is applied. */}
-        <div className="mb-3 flex flex-wrap gap-1.5">
-          <PhaseTab active={phase === ""} count={allCount} onClick={() => setPhase("")}>
-            Everything
+        {/* Live work on the left, finished work on the right, with a rule
+            between them. The two groups used to be one undifferentiated row, so
+            "Completed 20" sat beside "Pending 26" as though they were equally
+            worth opening. Categorisation comes before search because most
+            people arrive wanting a stage, not a keyword. */}
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          <PhaseTab
+            active={phase === "OPEN"}
+            count={countFor("OPEN")}
+            onClick={() => setPhase("OPEN")}
+            tone="open"
+          >
+            Open
           </PhaseTab>
-          {PHASE_ORDER.map((p) => (
+          {OPEN_PHASES.map((p) => (
             <PhaseTab
               key={p}
               active={phase === p}
               count={countFor(p)}
               onClick={() => setPhase(p)}
+              subdued
             >
               {PHASE_LABEL[p]}
             </PhaseTab>
           ))}
+
+          <span aria-hidden="true" className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" />
+
+          <PhaseTab
+            active={phase === "CLOSED"}
+            count={countFor("CLOSED")}
+            onClick={() => setPhase("CLOSED")}
+            tone="closed"
+          >
+            Closed
+          </PhaseTab>
+          {CLOSED_PHASES.map((p) => (
+            <PhaseTab
+              key={p}
+              active={phase === p}
+              count={countFor(p)}
+              onClick={() => setPhase(p)}
+              subdued
+            >
+              {PHASE_LABEL[p]}
+            </PhaseTab>
+          ))}
+          <PhaseTab active={phase === ""} count={allCount} onClick={() => setPhase("")} subdued>
+            Everything
+          </PhaseTab>
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
@@ -282,7 +365,11 @@ export default function MaintenancePage() {
 
         <div className="mt-2 flex items-center justify-between gap-3">
           <p className="text-xs text-slate-500">
-            {board.isLoading ? "Loading…" : `${total} matching`}
+            {board.isLoading
+              ? "Loading…"
+              : `${total} ${total === 1 ? "work order" : "work orders"}${
+                  phase ? ` · ${PHASE_LABEL[phase].toLowerCase()}` : ""
+                }`}
           </p>
           <Select
             value={sort}
@@ -308,12 +395,25 @@ export default function MaintenancePage() {
             columns={columns}
             rows={rows}
             onRowClick={(t) => navigate(`/admin/maintenance/${t._id}`)}
+            // Finished work recedes wherever the two are shown together, so the
+            // open rows are still the ones the eye lands on.
+            rowClassName={(t) => (isOpenStatus(t.status) ? "" : "bg-slate-50/60 text-slate-400")}
             empty={
-              <EmptyState
-                icon={Wrench}
-                title="Nothing here"
-                description="No work orders match these filters."
-              />
+              // An empty Open tab is the good outcome, and saying "nothing
+              // matches these filters" reads like something went wrong.
+              phase === "OPEN" && !hasNarrowingFilter ? (
+                <EmptyState
+                  icon={CheckCircle2}
+                  title="Nothing open"
+                  description="Every work order has been closed out. Finished work is under Closed."
+                />
+              ) : (
+                <EmptyState
+                  icon={Wrench}
+                  title="Nothing here"
+                  description="No work orders match these filters."
+                />
+              )
             }
           />
 
@@ -352,8 +452,14 @@ export default function MaintenancePage() {
   );
 }
 
-/** Severity as a shape, not only a word — scannable down the left edge. */
-function SeverityStripe({ severity }) {
+/**
+ * Severity as a shape, not only a word — scannable down the left edge.
+ *
+ * Finished work keeps its colour but loses its saturation. A closed CRITICAL is
+ * still a fact worth seeing in the mixed view, but a full-strength red bar next
+ * to a live one makes the eye stop at the wrong row.
+ */
+function SeverityStripe({ severity, muted = false }) {
   const tones = {
     CRITICAL: "bg-red-500",
     MAJOR: "bg-amber-500",
@@ -363,25 +469,49 @@ function SeverityStripe({ severity }) {
   return (
     <span
       aria-hidden="true"
-      className={"block h-full min-h-[2.5rem] w-1 rounded-r " + (tones[severity] || tones.INFO)}
+      className={
+        "block h-full min-h-[2.5rem] w-1 rounded-r " +
+        (tones[severity] || tones.INFO) +
+        (muted ? " opacity-30" : "")
+      }
     />
   );
 }
 
-function PhaseTab({ active, count, onClick, children }) {
+/**
+ * A tab, at one of two weights.
+ *
+ * The group tabs (Open, Closed) are the decision most people are making, so
+ * they carry the weight; the phases inside each group are a refinement and read
+ * quieter. Selected-Closed is slate rather than brand: finished work should
+ * never wear the same colour as work that still needs doing, or the board looks
+ * equally urgent whichever tab you are on.
+ */
+function PhaseTab({ active, count, onClick, children, tone = "open", subdued = false }) {
+  const activeTone = tone === "closed" ? "bg-slate-600 text-white ring-slate-600" : "bg-brand-600 text-white ring-brand-600";
+  const idleTone = subdued
+    ? "bg-transparent text-slate-500 ring-transparent hover:bg-slate-100 hover:text-slate-700"
+    : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50";
+
   return (
     <button
       onClick={onClick}
       aria-pressed={active}
       className={
-        "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium ring-1 ring-inset transition-colors " +
-        (active
-          ? "bg-brand-600 text-white ring-brand-600"
-          : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50")
+        "inline-flex items-center gap-1.5 rounded-full ring-1 ring-inset transition-colors " +
+        (subdued ? "px-2.5 py-1 text-xs font-medium " : "px-3 py-1.5 text-sm font-semibold ") +
+        (active ? activeTone : idleTone)
       }
     >
       {children}
-      <span className={active ? "text-brand-100" : "text-slate-400"}>{count}</span>
+      <span
+        className={
+          "tabular-nums " +
+          (active ? "text-white/70" : subdued ? "text-slate-400" : "text-slate-400")
+        }
+      >
+        {count}
+      </span>
     </button>
   );
 }
@@ -413,6 +543,19 @@ function AttentionChip({ active, icon: Icon, onClick, children }) {
 function AgeCell({ task }) {
   const overdue =
     task.status === "TRIAGE" && task.triageDueAt && new Date(task.triageDueAt) < new Date();
+
+  // How long a finished job has been sitting there is not the question anyone
+  // is asking about it — when it was closed is. Live work still reports its age,
+  // because that is exactly what makes it worth chasing.
+  if (!isOpenStatus(task.status)) {
+    return (
+      <span className="inline-flex flex-col gap-0.5">
+        <span className="text-sm text-slate-400">
+          {task.resolvedAt ? `closed ${relTime(task.resolvedAt)}` : relTime(task.createdAt)}
+        </span>
+      </span>
+    );
+  }
 
   return (
     <span className="inline-flex flex-col gap-0.5">

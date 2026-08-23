@@ -58,8 +58,24 @@ export const PHASE_LABEL = {
   PENDING: "Pending",
   IN_PROGRESS: "In progress",
   COMPLETED: "Completed",
-  CANCELLED: "Cancelled"
+  CANCELLED: "Cancelled",
+  OPEN: "Open",
+  CLOSED: "Closed"
 };
+
+/**
+ * The first split anyone scanning the board makes: is this still somebody's
+ * problem, or is it done with? Mirrors PHASE_GROUPS in
+ * backend/src/services/taskPhase.js, which resolves the same two words to the
+ * same statuses when querying.
+ */
+export const OPEN_PHASES = ["PENDING", "IN_PROGRESS"];
+export const CLOSED_PHASES = ["COMPLETED", "CANCELLED"];
+
+/** Whether a status still needs someone to do something about it. */
+export function isOpenStatus(status) {
+  return OPEN_PHASES.includes(taskPhase(status));
+}
 
 export function taskStatusMeta(status) {
   return (

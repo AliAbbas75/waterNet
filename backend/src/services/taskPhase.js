@@ -25,14 +25,45 @@ const STATUS_PHASE = Object.entries(PHASE_STATUSES).reduce((acc, [phase, statuse
 
 const PHASES = Object.keys(PHASE_STATUSES);
 
+/**
+ * The split anyone scanning a queue actually cares about first: is this still
+ * somebody's problem, or is it done with?
+ *
+ * Derived from PHASE_STATUSES rather than listed again, so a status added to a
+ * phase cannot quietly go missing from both sides of the split — which would
+ * leave a work order that appears under no tab at all.
+ */
+const PHASE_GROUPS = {
+  OPEN: [...PHASE_STATUSES.PENDING, ...PHASE_STATUSES.IN_PROGRESS],
+  CLOSED: [...PHASE_STATUSES.COMPLETED, ...PHASE_STATUSES.CANCELLED]
+};
+
+/** Whether a status still needs someone to do something about it. */
+function isOpenStatus(status) {
+  return PHASE_GROUPS.OPEN.includes(status);
+}
+
 /** The phase a status belongs to, or null for a status this does not know. */
 function phaseOf(status) {
   return STATUS_PHASE[status] || null;
 }
 
-/** The statuses a phase covers, for querying. */
+/**
+ * The statuses a phase covers, for querying. Accepts the two groups as well, so
+ * a caller can ask for "open" without enumerating four statuses and getting it
+ * subtly wrong.
+ */
 function statusesForPhase(phase) {
-  return PHASE_STATUSES[String(phase || "").toUpperCase()] || null;
+  const key = String(phase || "").toUpperCase();
+  return PHASE_STATUSES[key] || PHASE_GROUPS[key] || null;
 }
 
-module.exports = { PHASES, PHASE_STATUSES, STATUS_PHASE, phaseOf, statusesForPhase };
+module.exports = {
+  PHASES,
+  PHASE_STATUSES,
+  PHASE_GROUPS,
+  STATUS_PHASE,
+  phaseOf,
+  statusesForPhase,
+  isOpenStatus
+};

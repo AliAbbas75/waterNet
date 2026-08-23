@@ -504,6 +504,10 @@ function CoverageCard({ plant }) {
   );
 }
 
+// Enough history to answer "has this happened before?" without the card
+// becoming the page. The rest is one click away.
+const HISTORY_SHOWN = 8;
+
 /** What has been done to this plant, and what is being done to it right now. */
 function MaintenanceHistoryCard({ plantId, plantName }) {
   const tasks = useTasks(useMemo(() => ({ plantId }), [plantId]));
@@ -555,10 +559,22 @@ function MaintenanceHistoryCard({ plantId, plantName }) {
                 History
               </p>
               <ul className="space-y-2">
-                {past.slice(0, 8).map((t) => (
-                  <WorkOrderRow key={t._id} task={t} />
+                {past.slice(0, HISTORY_SHOWN).map((t) => (
+                  <WorkOrderRow key={t._id} task={t} muted />
                 ))}
               </ul>
+              {/* The list used to stop at eight with nothing to say it had. A
+                  truncated history that looks complete is worse than a short
+                  one, because it quietly answers "has this happened before?"
+                  with no. */}
+              {past.length > HISTORY_SHOWN ? (
+                <Link
+                  to={`/admin/maintenance?plantId=${plantId}&phase=CLOSED`}
+                  className="mt-2 inline-block text-xs text-slate-500 underline underline-offset-2 hover:text-slate-800"
+                >
+                  {past.length - HISTORY_SHOWN} more closed — see all
+                </Link>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -567,16 +583,26 @@ function MaintenanceHistoryCard({ plantId, plantName }) {
   );
 }
 
-function WorkOrderRow({ task }) {
+function WorkOrderRow({ task, muted = false }) {
   return (
     <li>
       <Link
         to={`/admin/maintenance/${task._id}`}
-        className="flex items-start gap-3 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50"
+        className={
+          "flex items-start gap-3 rounded-lg border px-3 py-2 hover:bg-slate-50 " +
+          (muted ? "border-slate-100 bg-slate-50/50" : "border-slate-200")
+        }
       >
         <TaskStatusTag status={task.status} blockedReason={task.blockedReason} showDetail={false} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-slate-900">{task.title}</span>
+          <span
+            className={
+              "block truncate text-sm font-medium " +
+              (muted ? "text-slate-500" : "text-slate-900")
+            }
+          >
+            {task.title}
+          </span>
           <span className="block truncate text-xs text-slate-500">
             {task.severity}
             {task.assignedToUserId ? ` · ${task.assignedToUserId.display_name}` : " · unassigned"}

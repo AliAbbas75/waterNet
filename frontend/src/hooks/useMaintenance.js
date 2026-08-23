@@ -9,8 +9,13 @@ export function useTasks(filters = {}) {
   useEffect(() => {
     const s = getSocket();
     if (!s) return;
-    const handler = () => qc.invalidateQueries({ queryKey: ["tasks"] });
+    // Both keys, or the plant page and the board disagree about what just
+    // happened. The second call used to sit outside the arrow function, so it
+    // ran once when the hook mounted and never again on an actual event.
+    const handler = () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
       qc.invalidateQueries({ queryKey: ["task-board"] });
+    };
     s.on("task:updated", handler);
     return () => s.off("task:updated", handler);
   }, [qc]);
