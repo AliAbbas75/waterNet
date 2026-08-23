@@ -111,7 +111,8 @@ exports.updatePlant = async (req, res, next) => {
       operationalStatus,
       operatingHours,
       tankCapacityLitres,
-      qualityDeviceId
+      qualityDeviceId,
+      coveringMaintainerId
     } = req.body;
     const statusReason = typeof req.body.statusReason === 'string' ? req.body.statusReason.trim() : '';
 
