@@ -98,6 +98,10 @@ export function useDeviceReadings(id, limit = 200, sinceMs = null) {
       api.get(`/api/devices/${id}/readings`, {
         params: { limit, ...(sinceMs ? { since: new Date(Date.now() - sinceMs).toISOString() } : {}) }
       }),
+    // Backstop. These charts used to refresh only on a telemetry:new push,
+    // while the plant state beside them polls on a timer — so whenever the
+    // socket was down or the payload did not match, the charts froze while the
+    // cards around them kept moving, and the page showed two points in time.
     refetchInterval: 15_000
   });
 }

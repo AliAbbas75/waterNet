@@ -7,7 +7,6 @@ import { Card } from "../../components/ui/Card.jsx";
 import { Input, Select, Field, Textarea } from "../../components/ui/Input.jsx";
 import { DataTable } from "../../components/ui/DataTable.jsx";
 import { Badge, statusVariant, plantStatusVariant } from "../../components/ui/Badge.jsx";
-import { ConsumptionBadge } from "../../components/plants/ConsumptionCard.jsx";
 import { Modal } from "../../components/ui/Modal.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
@@ -17,7 +16,37 @@ import {
   usePlants,
   useUpdatePlant
 } from "../../hooks/usePlants.js";
-import { relTime } from "../../lib/format.js";
+import { fmtNum, relTime } from "../../lib/format.js";
+
+/**
+ * Healthy means every reporting sensor at the plant is inside its safe band.
+ * One parameter out of range on one device is enough to make it unhealthy —
+ * the badge answers "is this water within limits", not "how badly is it out".
+ */
+function WaterHealthBadge({ health }) {
+  if (!health || health.status === "NO_DATA") {
+    return (
+      <Badge variant="muted" dot>
+        No data
+      </Badge>
+    );
+  }
+
+  const unhealthy = health.status === "UNHEALTHY";
+  // Name what actually breached, so the row says why without a click through.
+  const params = [...new Set((health.breaches || []).map((b) => b.parameter))];
+
+  return (
+    <div className="min-w-0">
+      <Badge variant={unhealthy ? "unsafe" : "safe"} dot>
+        {unhealthy ? "Unhealthy" : "Healthy"}
+      </Badge>
+      {unhealthy && params.length ? (
+        <div className="text-xs text-slate-500 truncate mt-0.5">{params.join(", ")}</div>
+      ) : null}
+    </div>
+  );
+}
 
 export default function PlantsPage() {
   const [status, setStatus] = useState("");
@@ -29,6 +58,19 @@ export default function PlantsPage() {
   const { data: plants, isLoading } = usePlants(filters);
   const navigate = useNavigate();
   const del = useDeletePlant();
+
+  // Tank size is per plant, so the capacity only belongs in the header while
+  // every plant shares one. Otherwise the header would claim a size that half
+  // the rows contradict, and the per-row "x / y L" carries it instead.
+  const waterHeader = useMemo(() => {
+    const capacities = new Set(
+      (plants || []).map((p) => p.consumption?.tankCapacityLitres).filter(Boolean)
+    );
+    if (capacities.size === 1) {
+      return `Water remaining today / ${fmtNum([...capacities][0], 0)} L`;
+    }
+    return "Water remaining today";
+  }, [plants]);
 
   const columns = useMemo(
     () => [
@@ -53,9 +95,24 @@ export default function PlantsPage() {
       },
       {
         key: "water",
-        header: "Water today",
-        mobileLabel: "Water today",
-        render: (p) => <ConsumptionBadge consumption={p.consumption} />
+        header: waterHeader,
+        mobileLabel: waterHeader,
+        render: (p) => {
+          const c = p.consumption;
+          if (!c?.hasData) return <span className="text-sm text-slate-400">No flow data</span>;
+          return (
+            <span className="text-sm tabular-nums text-slate-800">
+              {fmtNum(c.tankRemainingLitres, 0)}
+              <span className="text-slate-400"> / {fmtNum(c.tankCapacityLitres, 0)} L</span>
+            </span>
+          );
+        }
+      },
+      {
+        key: "health",
+        header: "Water health",
+        mobileLabel: "Water health",
+        render: (p) => <WaterHealthBadge health={p.waterHealth} />
       },
       {
         key: "hours",

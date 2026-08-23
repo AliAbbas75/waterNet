@@ -6,6 +6,7 @@ const { emit: socketEmit } = require("../services/socket.service");
 const { raiseAlert, clearAlerts } = require("../services/alert.service");
 const { logAudit } = require("../services/audit.service");
 const { getPlantConsumption, getConsumptionForPlants } = require("../services/consumption.service");
+const { getWaterHealthForPlants } = require("../services/waterHealth.service");
 
 exports.getPlants = async (req, res, next) => {
   try {
@@ -28,13 +29,17 @@ exports.getPlants = async (req, res, next) => {
       .sort({ createdAt: -1 });
 
     // Batched into a single aggregation so the list does not fan out per plant.
-    const consumption = await getConsumptionForPlants(plants);
-    const withConsumption = plants.map((plant) => ({
+    const [consumption, waterHealth] = await Promise.all([
+      getConsumptionForPlants(plants),
+      getWaterHealthForPlants(plants)
+    ]);
+    const enriched = plants.map((plant) => ({
       ...plant.toObject(),
-      consumption: consumption.get(String(plant._id)) || null
+      consumption: consumption.get(String(plant._id)) || null,
+      waterHealth: waterHealth.get(String(plant._id)) || null
     }));
 
-    res.json({ plants: withConsumption });
+    res.json({ plants: enriched });
   } catch (err) {
     next(err);
   }
