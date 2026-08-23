@@ -1,8 +1,7 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { ethers } = require("ethers");
-const { Resend } = require("resend");
-const nodemailer = require("nodemailer");
+const { sendMail } = require("../services/mailer.service");
 
 const User = require("../models/User");
 const Invite = require("../models/Invite");
@@ -63,78 +62,35 @@ const EMAIL_HTML = (code, exp) =>
   `<p>Your WaterNet one-time login code is <strong style="font-size:1.5em">${code}</strong>.</p>` +
   `<p>It expires in ${exp} minutes. Do not share it.</p>`;
 
-// Long enough for a slow handshake, short enough that a blocked port fails
-// instead of hanging. Most cloud hosts block outbound SMTP to stop spam, and
-// nodemailer's default is to wait indefinitely — which took the whole HTTP
-// request with it and made login look broken rather than misconfigured.
-const SMTP_TIMEOUT_MS = 10_000;
-
 /**
  * Gets the login code to the user, by whatever route is working.
  *
- * Each provider is tried in turn and a failure falls through to the next rather
- * than aborting: an unreachable mail server should degrade delivery, not make
- * the system impossible to sign in to. The console fallback is the last resort
- * and is loud about being one — in a hosted environment it means the code is
- * sitting in the logs where an operator has to go and read it.
+ * Transport choice and the fallback between them belong to the mailer; what is
+ * decided here is what happens when every one of them fails. Delivery failing
+ * must not abort the request — an unreachable mail server should degrade how
+ * the code arrives, not make the system impossible to sign in to — so the
+ * console is the last resort, and loud about being one.
  */
 async function deliverOtp(email, code) {
-  // Priority 1 — Gmail / any SMTP
-  const smtpUser = process.env.SMTP_USER;
-  const smtpPass = process.env.SMTP_PASS;
-  const smtpFrom = process.env.SMTP_FROM;
-  if (smtpUser && smtpPass && smtpFrom) {
-    const port = Number(process.env.SMTP_PORT) || 587;
-    try {
-      const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST || "smtp.gmail.com",
-        port,
-        secure: port === 465,
-        auth: { user: smtpUser, pass: smtpPass },
-        connectionTimeout: SMTP_TIMEOUT_MS,
-        greetingTimeout: SMTP_TIMEOUT_MS,
-        socketTimeout: SMTP_TIMEOUT_MS
-      });
-      await transporter.sendMail({
-        from: smtpFrom,
-        to: email,
-        subject: "Your WaterNet login code",
-        html: EMAIL_HTML(code, OTP_EXP_MINUTES)
-      });
-      return;
-    } catch (err) {
-      console.error(
-        `OTP delivery over SMTP failed (${err.code || err.message}). ` +
-          `Outbound SMTP is blocked on most cloud hosts — use an HTTPS mail API instead.`
-      );
-    }
+  try {
+    const { transport } = await sendMail({
+      to: email,
+      subject: "Your WaterNet login code",
+      html: EMAIL_HTML(code, OTP_EXP_MINUTES)
+    });
+    return { delivered: true, transport };
+  } catch (err) {
+    // Every configured transport was tried and refused. The code still has to
+    // reach somebody, so it goes to the logs — loudly, because in a hosted
+    // environment this means mail is misconfigured and signing in now requires
+    // an operator reading it out.
+    console.error(`OTP delivery failed for ${email}: ${err.message}`);
+    console.warn(
+      `[OTP FALLBACK] No mail provider delivered the code — reading it from logs is the only way in.`
+    );
+    console.log(`OTP for ${email}: ${code}`);
+    return { delivered: false, transport: null };
   }
-
-  // Priority 2 — Resend. An HTTPS API, so it works where port 587 does not.
-  const resendKey = process.env.RESEND_API_KEY;
-  const resendFrom = process.env.RESEND_FROM;
-  if (resendKey && resendFrom) {
-    try {
-      const resend = new Resend(resendKey);
-      await resend.emails.send({
-        from: resendFrom,
-        to: email,
-        subject: "Your WaterNet login code",
-        html: EMAIL_HTML(code, OTP_EXP_MINUTES)
-      });
-      return;
-    } catch (err) {
-      console.error(`OTP delivery over Resend failed: ${err.message}`);
-    }
-  }
-
-  // Last resort — the code goes to the logs. Deliberately not silent: if this
-  // fires in a deployed environment, mail is misconfigured and every login now
-  // requires somebody with log access.
-  console.warn(
-    `[OTP FALLBACK] No mail provider delivered the code — reading it from logs is the only way in.`
-  );
-  console.log(`OTP for ${email}: ${code}`);
 }
 
 exports.sendOtp = async (req, res, next) => {
