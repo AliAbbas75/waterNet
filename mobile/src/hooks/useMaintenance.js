@@ -35,6 +35,20 @@ export function useStartTask() {
   });
 }
 
+/** Park a started task, or bring it back. A reason is required to park it. */
+export function useSetBlocked() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, blocked, reason }) =>
+      api.patch(`/api/maintenance/tasks/${id}/blocked`, { blocked, reason }),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["my-tasks"] });
+      qc.invalidateQueries({ queryKey: ["task", vars.id] });
+      qc.invalidateQueries({ queryKey: ["task-logs", vars.id] });
+    }
+  });
+}
+
 export function useAddTaskLog() {
   const qc = useQueryClient();
   return useMutation({

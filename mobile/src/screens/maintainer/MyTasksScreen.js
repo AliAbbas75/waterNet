@@ -15,12 +15,13 @@ import { useMyTasks, useStartTask } from "../../hooks/useMaintenance.js";
 import { useAlerts } from "../../hooks/useAlerts.js";
 import { colors, font, radii, spacing } from "../../lib/theme.js";
 import { relTime } from "../../lib/format.js";
+import { countByPhase, taskStatusMeta } from "../../lib/taskStatus.js";
 
 const FILTERS = [
   { key: "ALL", label: "All" },
-  { key: "ASSIGNED", label: "To do" },
+  { key: "PENDING", label: "Pending" },
   { key: "IN_PROGRESS", label: "In progress" },
-  { key: "RESOLVED", label: "Resolved" }
+  { key: "COMPLETED", label: "Completed" }
 ];
 
 export default function MyTasksScreen() {
@@ -31,13 +32,22 @@ export default function MyTasksScreen() {
   const navigation = useNavigation();
   const [filter, setFilter] = useState("ALL");
 
+  // Grouped by phase, not by raw status: BLOCKED and CANCELLED tasks were
+  // assigned to people and then shown to nobody.
   const groups = useMemo(() => {
-    const out = { ASSIGNED: [], IN_PROGRESS: [], RESOLVED: [] };
+    const out = { PENDING: [], IN_PROGRESS: [], COMPLETED: [], CANCELLED: [] };
     (tasks.data || []).forEach((t) => {
-      if (out[t.status]) out[t.status].push(t);
+      const phase = taskStatusMeta(t.status).phase;
+      if (out[phase]) out[phase].push(t);
     });
     return out;
   }, [tasks.data]);
+
+  const counts = useMemo(() => countByPhase(tasks.data), [tasks.data]);
+  const heldUp = useMemo(
+    () => (tasks.data || []).filter((t) => t.status === "BLOCKED").length,
+    [tasks.data]
+  );
 
   const filtered = filter === "ALL" ? tasks.data || [] : groups[filter] || [];
   const urgent = (alerts.data || []).filter((a) => a.severity === "CRITICAL").length;
@@ -53,11 +63,15 @@ export default function MyTasksScreen() {
         </Text>
 
         <View style={styles.statsRow}>
-          <Stat label="To do" value={groups.ASSIGNED.length} accent="brand" />
-          <Stat label="In progress" value={groups.IN_PROGRESS.length} accent="warn" />
+          <Stat label="Pending" value={counts.PENDING} accent="brand" />
+          <Stat
+            label={heldUp ? `In progress (${heldUp} held up)` : "In progress"}
+            value={counts.IN_PROGRESS}
+            accent="warn"
+          />
         </View>
         <View style={[styles.statsRow, { marginTop: spacing.sm }]}>
-          <Stat label="Resolved" value={groups.RESOLVED.length} accent="safe" />
+          <Stat label="Completed" value={counts.COMPLETED} accent="safe" />
           <Stat label="Urgent alerts" value={urgent} accent={urgent > 0 ? "unsafe" : "neutral"} />
         </View>
 
@@ -101,8 +115,12 @@ export default function MyTasksScreen() {
           ]}
         >
           <View style={styles.taskHeader}>
-            <Badge status={t.status}>{t.status.replace("_", " ")}</Badge>
-            <Text style={styles.taskTime}>Assigned {relTime(t.assignedAt)}</Text>
+            <Badge status={taskStatusMeta(t.status).tone}>{taskStatusMeta(t.status).label}</Badge>
+            <Text style={styles.taskTime}>
+              {t.startedAt && !t.resolvedAt
+                ? `Started ${relTime(t.startedAt)}`
+                : `Assigned ${relTime(t.assignedAt)}`}
+            </Text>
           </View>
           <Text style={styles.taskTitle} numberOfLines={2}>
             {t.title}
@@ -110,6 +128,14 @@ export default function MyTasksScreen() {
           <Text style={styles.taskDesc} numberOfLines={2}>
             {t.description}
           </Text>
+          {t.status === "BLOCKED" && t.blockedReason ? (
+            <View style={styles.blockedBox}>
+              <Ionicons name="pause-circle" size={13} color={colors.warn} />
+              <Text style={styles.blockedText} numberOfLines={2}>
+                Waiting on: {t.blockedReason}
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.taskMeta}>
             <Ionicons name="business" size={12} color={colors.textMuted} />
             <Text style={styles.taskMetaText} numberOfLines={1}>
@@ -196,6 +222,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card
   },
   filterText: { fontSize: font.sizes.sm, fontWeight: "600", color: colors.textMuted },
+  blockedBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: radii.sm,
+    backgroundColor: colors.warnBg
+  },
+  blockedText: {
+    flex: 1,
+    fontSize: font.sizes.xs,
+    color: colors.warn
+  },
   taskCard: { padding: 0 },
   taskHeader: {
     flexDirection: "row",

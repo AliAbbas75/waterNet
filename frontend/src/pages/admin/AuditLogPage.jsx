@@ -57,6 +57,9 @@ const EVENT_LABEL = {
   "ticket.triaged": "Work order assigned",
   "ticket.reassigned": "Work order reassigned",
   "ticket.cancelled": "Work order cancelled",
+  "ticket.started": "Work started",
+  "ticket.blocked": "Work held up",
+  "ticket.unblocked": "Work resumed",
   "ticket.checklist_item_completed": "Checklist step completed",
   "ticket.checklist_item_reopened": "Checklist step reopened",
   "device.flagged_faulty": "Device flagged faulty",
@@ -81,6 +84,7 @@ const META_LABEL = {
   role: "Role",
   assignedTo: "Assigned to",
   ownerRole: "Owned by",
+  waitedMinutes: "Waited (min)",
   flips: "Flips",
   previousStatus: "Was"
 };

@@ -8,6 +8,7 @@ const { checkLowStock } = require("../services/inventory.service");
 const { logAudit } = require("../services/audit.service");
 const { clearAdvisory, resolveAlertForTicket } = require("../services/alert.service");
 const { assignTicket } = require("../services/ticket.service");
+const { statusesForPhase } = require("../services/taskPhase");
 const Plant = require("../models/Plant");
 
 // Admin: Create task
@@ -123,10 +124,18 @@ exports.assignTask = async (req, res, next) => {
 // Admin: Get all tasks
 exports.getTasks = async (req, res, next) => {
   try {
-    const { status, plantId, deviceId } = req.query;
+    const { status, phase, plantId, deviceId } = req.query;
     let query = {};
 
-    if (status) query.status = status;
+    // A phase covers several statuses, so it is resolved here rather than each
+    // client inventing its own idea of what "pending" includes.
+    if (phase) {
+      const statuses = statusesForPhase(phase);
+      if (!statuses) return res.status(400).json({ error: 'Unknown phase' });
+      query.status = { $in: statuses };
+    } else if (status) {
+      query.status = status;
+    }
     if (plantId) query.plantId = plantId;
     if (deviceId) query.deviceId = deviceId;
 
@@ -202,9 +211,88 @@ exports.startTask = async (req, res, next) => {
     }
 
     task.status = 'IN_PROGRESS';
+    // Only on the first start: coming back from BLOCKED must not rewrite when
+    // the work actually began.
+    if (!task.startedAt) task.startedAt = new Date();
     await task.save();
+
+    await logAudit({
+      event: 'ticket.started',
+      req,
+      actorUserId: req.user._id,
+      targetType: 'TASK',
+      targetId: task._id,
+      meta: {
+        severity: task.severity,
+        // How long it sat between being handed over and being picked up.
+        waitedMinutes: task.assignedAt
+          ? Math.round((task.startedAt - new Date(task.assignedAt)) / 60000)
+          : null
+      }
+    });
+
     await task.populate(['assignedToUserId', 'assignedByUserId', 'plantId', 'deviceId']);
 
+    socketEmit("task:updated", { task });
+    res.json({ task });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Park a started task, or bring it back.
+ *
+ * BLOCKED was in the schema and in every query from the day it was added, but
+ * nothing could set it and nothing could leave it: startTask requires ASSIGNED
+ * and resolveTask requires IN_PROGRESS, so a blocked task was a dead end. This
+ * is the transition that makes the state real in both directions.
+ */
+exports.setBlocked = async (req, res, next) => {
+  try {
+    const blocked = req.body?.blocked !== false;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+
+    if (blocked && !reason) {
+      return res.status(400).json({
+        error: 'Say what is holding this up — a blocked task with no reason cannot be chased.'
+      });
+    }
+
+    const task = await MaintenanceTask.findOne({
+      _id: req.params.id,
+      assignedToUserId: req.user._id,
+      status: blocked ? 'IN_PROGRESS' : 'BLOCKED'
+    });
+    if (!task) {
+      return res.status(404).json({
+        error: blocked
+          ? 'Task not found, not yours, or not started yet.'
+          : 'Task not found, not yours, or not blocked.'
+      });
+    }
+
+    task.status = blocked ? 'BLOCKED' : 'IN_PROGRESS';
+    task.blockedReason = blocked ? reason : null;
+    await task.save();
+
+    await MaintenanceLog.create({
+      taskId: task._id,
+      authorUserId: req.user._id,
+      note: blocked ? `Blocked: ${reason}` : 'Unblocked — back on this.',
+      structuredFields: { type: blocked ? 'BLOCKED' : 'UNBLOCKED', reason: reason || null }
+    });
+
+    await logAudit({
+      event: blocked ? 'ticket.blocked' : 'ticket.unblocked',
+      req,
+      actorUserId: req.user._id,
+      targetType: 'TASK',
+      targetId: task._id,
+      meta: { reason: reason || null, severity: task.severity }
+    });
+
+    await task.populate(['assignedToUserId', 'assignedByUserId', 'plantId', 'deviceId']);
     socketEmit("task:updated", { task });
     res.json({ task });
   } catch (err) {
@@ -409,6 +497,8 @@ exports.resolveTask = async (req, res, next) => {
     task.resolvedAt = new Date();
     task.resolvedByUserId = req.user._id;
     task.resolutionSummary = resolutionSummary || null;
+    // A finished task is not still waiting on anything.
+    task.blockedReason = null;
 
     await task.save({ session });
     await session.commitTransaction();

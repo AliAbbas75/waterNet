@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/Button.jsx";
 import { Card } from "../../components/ui/Card.jsx";
 import { Input, Select, Field, Textarea } from "../../components/ui/Input.jsx";
 import { DataTable } from "../../components/ui/DataTable.jsx";
-import { Badge, statusVariant } from "../../components/ui/Badge.jsx";
+import { PHASE_LABEL, PHASE_ORDER, TaskStatusTag } from "../../components/ui/TaskStatus.jsx";
 import { Modal } from "../../components/ui/Modal.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
@@ -23,7 +23,8 @@ export default function MaintenancePage() {
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
 
-  const filters = useMemo(() => ({ status, plantId }), [status, plantId]);
+  // `status` holds a phase now; the API expands it to the statuses it covers.
+  const filters = useMemo(() => ({ phase: status, plantId }), [status, plantId]);
   const tasks = useTasks(filters);
   const plants = usePlants();
   const navigate = useNavigate();
@@ -74,11 +75,7 @@ export default function MaintenancePage() {
       {
         key: "status",
         header: "Status",
-        render: (t) => (
-          <Badge variant={statusVariant(t.status)} dot>
-            {t.status.replace("_", " ")}
-          </Badge>
-        )
+        render: (t) => <TaskStatusTag status={t.status} blockedReason={t.blockedReason} />
       },
       {
         key: "updated",
@@ -110,11 +107,12 @@ export default function MaintenancePage() {
             leftIcon={<Search size={14} />}
           />
           <Select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">All statuses</option>
-            <option value="ASSIGNED">Assigned</option>
-            <option value="IN_PROGRESS">In progress</option>
-            <option value="RESOLVED">Resolved</option>
-            <option value="CANCELLED">Cancelled</option>
+            <option value="">Every stage</option>
+            {PHASE_ORDER.map((p) => (
+              <option key={p} value={p}>
+                {PHASE_LABEL[p]}
+              </option>
+            ))}
           </Select>
           <Select value={plantId} onChange={(e) => setPlantId(e.target.value)}>
             <option value="">All plants</option>

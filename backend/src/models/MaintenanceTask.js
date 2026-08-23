@@ -75,6 +75,19 @@ const maintenanceTaskSchema = new mongoose.Schema(
       type: Date,
       default: Date.now
     },
+    // When work actually began, as distinct from when it was handed over. The
+    // gap between assignedAt and startedAt is how long a job sat untouched,
+    // which is the number that shows a queue is too long.
+    startedAt: {
+      type: Date,
+      default: null
+    },
+    // Why a started task stalled. Required to enter BLOCKED, cleared on return,
+    // so "blocked" is never a state without an explanation attached.
+    blockedReason: {
+      type: String,
+      default: null
+    },
     plantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Plant',
