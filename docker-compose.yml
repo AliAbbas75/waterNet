@@ -37,17 +37,19 @@ services:
     depends_on:
       mongo-init:
         condition: service_completed_successfully
+    # Compose reads only the .env sitting beside this file, so backend/.env has
+    # to be named explicitly or its chain and mail settings never reach the
+    # container. Keys listed under `environment:` win over this file, so only
+    # values that must differ inside compose belong there.
+    env_file:
+      - path: ./backend/.env
+        required: false
     environment:
       MONGODB_URI: "mongodb://mongo:27017/waternet?replicaSet=rs0&directConnection=true"
       JWT_SECRET: "${JWT_SECRET:-dev-secret-change-me}"
       NODE_ENV: "development"
       DISABLE_MQTT: "true"
       SEED_FORCE: "${SEED_FORCE:-false}"
-      AUTH_BLOCKCHAIN_ENABLED: "${AUTH_BLOCKCHAIN_ENABLED:-false}"
-      AUTH_MASTER_KEY: "${AUTH_MASTER_KEY:-}"
-      CHAIN_RPC_URL: "${CHAIN_RPC_URL:-}"
-      CHAIN_USER_REGISTRY_ADDRESS: "${CHAIN_USER_REGISTRY_ADDRESS:-}"
-      CHAIN_ADMIN_PRIVATE_KEY: "${CHAIN_ADMIN_PRIVATE_KEY:-}"
     command: ["node", "scripts/seed.js"]
     restart: "no"
 
@@ -59,6 +61,12 @@ services:
     depends_on:
       seed:
         condition: service_completed_successfully
+    # Chain, mail and MQTT credentials come from backend/.env — see the note on
+    # the seed service. Anything below overrides that file, so it holds only
+    # what has to be container-specific.
+    env_file:
+      - path: ./backend/.env
+        required: false
     environment:
       MONGODB_URI: "mongodb://mongo:27017/waternet?replicaSet=rs0&directConnection=true"
       JWT_SECRET: "${JWT_SECRET:-dev-secret-change-me}"
@@ -67,24 +75,10 @@ services:
       CORS_ORIGINS: "*"
       NODE_ENV: "development"
       NODE_OPTIONS: "--dns-result-order=ipv4first"
+      # MQTT stays off inside compose unless explicitly switched on; the broker
+      # credentials themselves come from backend/.env.
       DISABLE_MQTT: "${DISABLE_MQTT:-true}"
-      MQTT_BROKER_URL: "${MQTT_BROKER_URL:-}"
-      MQTT_USERNAME: "${MQTT_USERNAME:-}"
-      MQTT_PASSWORD: "${MQTT_PASSWORD:-}"
       MQTT_CLIENT_ID: "${MQTT_CLIENT_ID:-waternet-backend}"
-      MQTT_TOPIC_PREFIX: "${MQTT_TOPIC_PREFIX:-waternet/v1/devices}"
-      AUTH_BLOCKCHAIN_ENABLED: "${AUTH_BLOCKCHAIN_ENABLED:-false}"
-      AUTH_MASTER_KEY: "${AUTH_MASTER_KEY:-}"
-      CHAIN_RPC_URL: "${CHAIN_RPC_URL:-}"
-      CHAIN_USER_REGISTRY_ADDRESS: "${CHAIN_USER_REGISTRY_ADDRESS:-}"
-      CHAIN_ADMIN_PRIVATE_KEY: "${CHAIN_ADMIN_PRIVATE_KEY:-}"
-      RESEND_API_KEY: "${RESEND_API_KEY:-}"
-      RESEND_FROM: "${RESEND_FROM:-}"
-      SMTP_HOST: "${SMTP_HOST:-smtp.gmail.com}"
-      SMTP_PORT: "${SMTP_PORT:-587}"
-      SMTP_USER: "${SMTP_USER:-}"
-      SMTP_PASS: "${SMTP_PASS:-}"
-      SMTP_FROM: "${SMTP_FROM:-}"
     ports:
       - "4000:4000"
     healthcheck:
@@ -100,7 +94,11 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_BACKEND_URL: ""
-        VITE_AUTH_BLOCKCHAIN_ENABLED: "true"
+        # Must match AUTH_BLOCKCHAIN_ENABLED in backend/.env. When the two
+        # disagree the login page offers wallet sign-in and the API answers
+        # "Blockchain auth is disabled" — the flag is baked into the bundle at
+        # build time, so changing it needs a frontend rebuild, not a restart.
+        VITE_AUTH_BLOCKCHAIN_ENABLED: "${VITE_AUTH_BLOCKCHAIN_ENABLED:-true}"
     container_name: waternet-frontend
     depends_on:
       backend:
