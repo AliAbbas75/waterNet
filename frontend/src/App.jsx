@@ -4,6 +4,7 @@ import Register from "./pages/Register.jsx";
 import RoleRedirect from "./pages/RoleRedirect.jsx";
 import InviteAccept from "./pages/InviteAccept.jsx";
 import ProofPage from "./pages/ProofPage.jsx";
+import NotificationsPage from "./pages/NotificationsPage.jsx";
 import { RequireAuth, RequireRole } from "./router/Guards.jsx";
 import { AdminLayout } from "./components/layout/AdminLayout.jsx";
 import { MaintainerLayout } from "./components/layout/MaintainerLayout.jsx";
@@ -65,6 +66,9 @@ export default function App() {
         <Route path="reports" element={<AdminReports />} />
         <Route path="issue-reports" element={<AdminIssueReports />} />
         <Route path="audit" element={<AdminAuditLog />} />
+        {/* Notification settings act on the caller's own account, so every
+            layout carries the same page rather than one role owning it. */}
+        <Route path="notifications" element={<NotificationsPage />} />
         {/* Account administration is SUPER_ADMIN only — hiding the nav item is
             not enough, the route itself must refuse a hand-typed URL. */}
         <Route
@@ -90,6 +94,7 @@ export default function App() {
         <Route index element={<MyTasks />} />
         <Route path="tasks/:id" element={<TaskDetail />} />
         <Route path="alerts" element={<MaintainerAlerts />} />
+        <Route path="notifications" element={<NotificationsPage />} />
         {/* Stock is a manager's concern; hiding the nav item is not enough,
             the route itself must refuse a hand-typed URL. */}
         <Route
@@ -118,6 +123,14 @@ export default function App() {
           element={
             <RequireAuth>
               <PublicMyReports />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="notifications"
+          element={
+            <RequireAuth>
+              <NotificationsPage />
             </RequireAuth>
           }
         />

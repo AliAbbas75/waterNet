@@ -2,6 +2,7 @@ const MaintenanceLog = require("../models/MaintenanceLog");
 const User = require("../models/User");
 const { logAudit } = require("./audit.service");
 const { emit: socketEmit } = require("./socket.service");
+const { notify } = require("./notification.service");
 
 // Roles that can hold a work order. PUBLIC obviously cannot; SUPER_ADMIN can,
 // but assigning the top account routine field work is almost always a mistake,
@@ -79,6 +80,19 @@ async function assignTicket({ task, assignedToUserId, actorUserId, req = null, n
   });
 
   socketEmit("task:updated", { task });
+
+  // The socket only reaches somebody already looking at the app. A work order
+  // lands in one person's queue, so it is addressed to that person rather than
+  // to a role — which is also why it survives them being logged out.
+  notify({
+    category: "WORK_ORDERS",
+    audience: { userIds: [assignee._id] },
+    title: `Work order assigned · ${task.severity || "TASK"}`,
+    body: task.title,
+    url: `/m/tasks/${task._id}`,
+    meta: { taskId: String(task._id) }
+  }).catch((err) => console.error("work-order notification failed:", err?.message || err));
+
   return { task, assignee, wasTriage };
 }
 

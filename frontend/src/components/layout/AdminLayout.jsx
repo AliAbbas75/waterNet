@@ -1,4 +1,5 @@
 import {
+  Bell,
   AlertTriangle,
   BarChart3,
   Building2,
@@ -24,7 +25,8 @@ const NAV = [
   { to: "/admin/thresholds", label: "Thresholds", icon: SlidersHorizontal },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
   { to: "/admin/issue-reports", label: "Citizen Reports", icon: MessagesSquare },
-  { to: "/admin/audit", label: "Audit log", icon: ScrollText }
+  { to: "/admin/audit", label: "Audit log", icon: ScrollText },
+  { to: "/admin/notifications", label: "Notifications", icon: Bell }
 ];
 
 // Account administration is SUPER_ADMIN only. An ADMIN runs operations —

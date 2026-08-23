@@ -46,6 +46,21 @@ const userSchema = new mongoose.Schema(
     active: {
       type: Boolean,
       default: true
+    },
+    // Per-category delivery choices, keyed by the notification catalog. Only
+    // what the user has actually changed is stored: an absent category falls
+    // back to the catalog default, so changing a default moves everyone who
+    // never expressed an opinion, and nobody who did.
+    notificationPrefs: {
+      type: Map,
+      of: new mongoose.Schema(
+        {
+          push: { type: Boolean, default: undefined },
+          email: { type: Boolean, default: undefined }
+        },
+        { _id: false }
+      ),
+      default: undefined
     }
   },
   { timestamps: true }

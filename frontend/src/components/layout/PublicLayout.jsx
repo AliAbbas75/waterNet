@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Droplet, FileText, LogOut, MapPin, MessageSquarePlus, ShieldCheck } from "lucide-react";
+import { Bell, Droplet, FileText, LogOut, MapPin, MessageSquarePlus, ShieldCheck } from "lucide-react";
 import clsx from "clsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { Avatar } from "../ui/Avatar.jsx";
@@ -8,6 +8,7 @@ const TABS = [
   { to: "/app", label: "Nearby", icon: MapPin, end: true },
   { to: "/app/report", label: "Report", icon: MessageSquarePlus },
   { to: "/app/my-reports", label: "My reports", icon: FileText },
+  { to: "/app/notifications", label: "Alerts", icon: Bell },
   { to: "/proof", label: "Verify", icon: ShieldCheck }
 ];
 

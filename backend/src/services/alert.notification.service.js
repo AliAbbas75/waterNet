@@ -1,8 +1,7 @@
-const { Resend } = require("resend");
-const nodemailer = require("nodemailer");
-const User = require("../models/User");
+const { notify } = require("./notification.service");
+const { categoryForAlertType } = require("./notificationCatalog");
 
-const SEVERITY_LABEL = { CRITICAL: "CRITICAL", WARN: "Warning", INFO: "Info" };
+const SEVERITY_LABEL = { CRITICAL: "CRITICAL", MAJOR: "Major", MINOR: "Minor", INFO: "Info" };
 const TYPE_LABEL = {
   QUALITY_UNSAFE: "Water Quality Unsafe",
   DEVICE_OFFLINE: "Device Offline",
@@ -11,76 +10,40 @@ const TYPE_LABEL = {
   AVAILABILITY_CHANGE: "Availability Change"
 };
 
-// Which roles receive email for each alert type
+// Which roles are eligible for each alert type. This still decides who *may*
+// hear about an alert; the user's own preference then decides whether they do,
+// and on which channel.
 const NOTIFY_ROLES = {
-  QUALITY_UNSAFE:    ["ADMIN", "SUPER_ADMIN", "MAINTAINER"],
-  DEVICE_OFFLINE:    ["ADMIN", "SUPER_ADMIN", "MAINTAINER"],
-  DEVICE_FLAPPING:   ["ADMIN", "SUPER_ADMIN", "MAINTAINER"],
-  AVAILABILITY_CHANGE: ["ADMIN", "SUPER_ADMIN"],
-  LOW_INVENTORY:     ["ADMIN", "SUPER_ADMIN"]
+  QUALITY_UNSAFE: ["ADMIN", "SUPER_ADMIN", "MANAGER", "MAINTAINER"],
+  DEVICE_OFFLINE: ["ADMIN", "SUPER_ADMIN", "MANAGER", "MAINTAINER"],
+  DEVICE_FLAPPING: ["ADMIN", "SUPER_ADMIN", "MANAGER", "MAINTAINER"],
+  AVAILABILITY_CHANGE: ["ADMIN", "SUPER_ADMIN", "MANAGER"],
+  LOW_INVENTORY: ["ADMIN", "SUPER_ADMIN", "MANAGER"]
 };
 
-function buildSubject(alert) {
+function buildTitle(alert) {
   const sev = SEVERITY_LABEL[alert.severity] || alert.severity;
   const type = TYPE_LABEL[alert.type] || alert.type;
-  return `[WaterNet ${sev}] ${type}`;
+  return `${type} · ${sev}`;
 }
 
-function buildHtml(alert) {
-  const color = alert.severity === "CRITICAL" ? "#dc2626" : "#d97706";
-  return (
-    `<h2 style="color:${color}">${buildSubject(alert)}</h2>` +
-    `<p>${alert.message}</p>` +
-    `<p style="color:#6b7280;font-size:0.875em">` +
-    `Alert ID: ${alert._id} &nbsp;|&nbsp; ${new Date(alert.createdAt).toUTCString()}` +
-    `</p>`
-  );
-}
-
-async function sendViaSmtp(to, subject, html) {
-  const port = Number(process.env.SMTP_PORT) || 587;
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || "smtp.gmail.com",
-    port,
-    secure: port === 465,
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-  });
-  await transporter.sendMail({ from: process.env.SMTP_FROM, to, subject, html });
-}
-
-async function sendViaResend(to, subject, html) {
-  const resend = new Resend(process.env.RESEND_API_KEY);
-  await resend.emails.send({ from: process.env.RESEND_FROM, to, subject, html });
-}
-
+/**
+ * Alerts now go out through the shared dispatcher rather than emailing every
+ * eligible role unconditionally, so a user who has muted a category stops
+ * hearing about it — and gains push on the categories they kept.
+ */
 async function notifyAdminsOfAlert(alert) {
-  const smtpReady = process.env.SMTP_USER && process.env.SMTP_PASS && process.env.SMTP_FROM;
-  const resendReady = process.env.RESEND_API_KEY && process.env.RESEND_FROM;
-  if (!smtpReady && !resendReady) return;
+  const category = categoryForAlertType(alert.type);
+  if (!category) return;
 
-  const roles = NOTIFY_ROLES[alert.type] || ["ADMIN", "SUPER_ADMIN"];
-
-  const recipients = await User.find(
-    { role: { $in: roles }, active: true, email: { $exists: true, $ne: null } },
-    { email: 1 }
-  ).lean();
-
-  if (!recipients.length) return;
-
-  const subject = buildSubject(alert);
-  const html = buildHtml(alert);
-
-  for (const user of recipients) {
-    try {
-      if (smtpReady) {
-        await sendViaSmtp(user.email, subject, html);
-      } else {
-        await sendViaResend(user.email, subject, html);
-      }
-    } catch (err) {
-      console.error(`Alert notification failed for ${user.email}:`, err?.message || err);
-    }
-  }
+  return notify({
+    category,
+    audience: { roles: NOTIFY_ROLES[alert.type] || ["ADMIN", "SUPER_ADMIN"] },
+    title: buildTitle(alert),
+    body: alert.message,
+    url: "/admin/alerts",
+    meta: { alertId: String(alert._id), type: alert.type, severity: alert.severity }
+  });
 }
 
-module.exports = { notifyAdminsOfAlert };
+module.exports = { notifyAdminsOfAlert, NOTIFY_ROLES, TYPE_LABEL };

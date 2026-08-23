@@ -21,6 +21,7 @@ const adminRoutes = require("./routes/admin.routes");
 const userRoutes = require("./routes/user.routes");
 const publicRoutes = require("./routes/public.routes");
 const reportRoutes = require("./routes/reports.routes");
+const notificationRoutes = require("./routes/notification.routes");
 
 const app = express();
 
@@ -72,6 +73,7 @@ app.use("/api/alerts", alertRoutes);
 app.use("/api/analysis", analysisRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 app.use((err, req, res, _next) => {
   const status = err.statusCode || 500;

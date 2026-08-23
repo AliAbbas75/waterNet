@@ -1,10 +1,12 @@
-import { AlertTriangle, ClipboardList, Package } from "lucide-react";
+import {
+  Bell, AlertTriangle, ClipboardList, Package } from "lucide-react";
 import { AppShell } from "./AppShell.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 
 const NAV = [
   { to: "/m", label: "My Tasks", icon: ClipboardList, end: true },
-  { to: "/m/alerts", label: "Alerts", icon: AlertTriangle }
+  { to: "/m/alerts", label: "Alerts", icon: AlertTriangle },
+  { to: "/m/notifications", label: "Notifications", icon: Bell }
 ];
 
 // A manager's work orders are about stock, so they get the shelf they are

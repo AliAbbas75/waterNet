@@ -27,6 +27,7 @@
     "socket.io": "^4.8.3",
     "solc": "^0.8.20",
     "swagger-ui-express": "^5.0.1",
+    "web-push": "^3.6.7",
     "zod": "^4.3.6"
   },
   "devDependencies": {
