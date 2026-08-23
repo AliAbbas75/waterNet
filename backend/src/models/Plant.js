@@ -31,6 +31,11 @@ const plantSchema = new mongoose.Schema(
       type: Number,
       default: 1000,
       min: 1
+    },
+    qualityDeviceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Device',
+      default: null
     }
   },
   { timestamps: true }

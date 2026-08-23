@@ -1,4 +1,6 @@
+const mongoose = require("mongoose");
 const Plant = require("../models/Plant");
+const Device = require("../models/Device");
 const { emit: socketEmit } = require("../services/socket.service");
 const { raiseAlert, clearAlerts } = require("../services/alert.service");
 const { logAudit } = require("../services/audit.service");
@@ -37,7 +39,10 @@ exports.getPlants = async (req, res, next) => {
 
 exports.getPlant = async (req, res, next) => {
   try {
-    const plant = await Plant.findById(req.params.id);
+    const plant = await Plant.findById(req.params.id).populate(
+      'qualityDeviceId',
+      'deviceId status availability plantId'
+    );
     if (!plant) {
       return res.status(404).json({ error: 'Plant not found' });
     }
@@ -88,11 +93,34 @@ exports.createPlant = async (req, res, next) => {
 
 exports.updatePlant = async (req, res, next) => {
   try {
-    const { name, address, geo, operationalStatus, operatingHours, tankCapacityLitres } = req.body;
+    const {
+      name,
+      address,
+      geo,
+      operationalStatus,
+      operatingHours,
+      tankCapacityLitres,
+      qualityDeviceId
+    } = req.body;
 
     const previous = await Plant.findById(req.params.id);
     if (!previous) {
       return res.status(404).json({ error: 'Plant not found' });
+    }
+
+    // A plant may pin one installed device as its quality source; that device
+    // must actually belong to this plant, or the readings would be someone else's.
+    if (qualityDeviceId) {
+      if (!mongoose.Types.ObjectId.isValid(qualityDeviceId)) {
+        return res.status(400).json({ error: 'qualityDeviceId must be a valid device id' });
+      }
+      const qualityDevice = await Device.findById(qualityDeviceId);
+      if (!qualityDevice) {
+        return res.status(404).json({ error: 'Quality device not found' });
+      }
+      if (!qualityDevice.plantId || qualityDevice.plantId.toString() !== req.params.id) {
+        return res.status(400).json({ error: 'Quality device must belong to this plant' });
+      }
     }
 
     const plant = await Plant.findByIdAndUpdate(
@@ -103,10 +131,11 @@ exports.updatePlant = async (req, res, next) => {
         geo,
         operationalStatus,
         operatingHours,
-        ...(tankCapacityLitres !== undefined ? { tankCapacityLitres } : {})
+        ...(tankCapacityLitres !== undefined ? { tankCapacityLitres } : {}),
+        ...(qualityDeviceId !== undefined ? { qualityDeviceId: qualityDeviceId || null } : {})
       },
       { new: true, runValidators: true }
-    );
+    ).populate('qualityDeviceId', 'deviceId status availability plantId');
 
     const prevStatus = previous.operationalStatus;
     const newStatus = plant.operationalStatus;

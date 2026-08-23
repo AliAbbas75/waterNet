@@ -103,8 +103,12 @@ export function hasRole(user, ...roles) {
   return roles.some((r) => userLevel >= (hierarchy[r] ?? 99));
 }
 
+export function isAdminRole(role) {
+  return role === "ADMIN" || role === "SUPER_ADMIN";
+}
+
 export function homeRouteForRole(role) {
-  if (role === "ADMIN" || role === "SUPER_ADMIN") return "/admin";
+  if (isAdminRole(role)) return "/admin";
   if (role === "MAINTAINER") return "/m";
   if (role === "PUBLIC") return "/app";
   return "/login";

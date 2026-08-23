@@ -20,7 +20,11 @@ function haversineKm(a, b) {
 }
 
 async function buildPlantStatus(plant) {
-  const states = await WaterQualityState.find({ plantId: plant._id })
+  const query = { plantId: plant._id };
+  if (plant.qualityDeviceId) {
+    query.deviceId = plant.qualityDeviceId;
+  }
+  const states = await WaterQualityState.find(query)
     .populate("deviceId", "deviceId availability status");
   const categories = states.map((s) => s.category);
   let overall = "NO_DATA";
@@ -72,7 +76,10 @@ exports.plantStatus = async (req, res, next) => {
     // Latest readings per device in this plant
     const devices = await Device.find({ plantId: plant._id });
     const readings = {};
-    for (const d of devices) {
+    const targetDevices = plant.qualityDeviceId
+      ? devices.filter((d) => String(d._id) === String(plant.qualityDeviceId))
+      : devices;
+    for (const d of targetDevices) {
       const r = await TelemetryReading.findOne({
         $or: [{ deviceRef: d._id }, { deviceId: d.deviceId }],
         readings: { $exists: true, $ne: null }

@@ -202,6 +202,19 @@ async function seedDevices(plants) {
   return created;
 }
 
+async function assignQualityDevices(plants, devices) {
+  const updates = [];
+  for (const plant of plants) {
+    const matching = devices.find((d) => String(d.plantId) === String(plant._id) && d.status === 'INSTALLED');
+    if (matching) {
+      updates.push(
+        Plant.findByIdAndUpdate(plant._id, { qualityDeviceId: matching._id })
+      );
+    }
+  }
+  await Promise.all(updates);
+}
+
 async function seedTelemetry(devices) {
   const docs = [];
   const now = Date.now();
@@ -504,6 +517,8 @@ async function seedReports(users, plants) {
     await seedThresholds(plants);
     console.log("- devices");
     const devices = await seedDevices(plants);
+    console.log("- assign quality devices");
+    await assignQualityDevices(plants, devices);
     console.log("- telemetry");
     await seedTelemetry(devices);
     console.log("- water quality states");

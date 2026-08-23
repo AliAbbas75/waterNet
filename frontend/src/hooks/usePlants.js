@@ -69,6 +69,7 @@ export function useUpdatePlant() {
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["plants"] });
       qc.invalidateQueries({ queryKey: ["plant", vars.id] });
+      qc.invalidateQueries({ queryKey: ["plant-state", vars.id] });
     }
   });
 }

@@ -164,9 +164,12 @@ exports.getPlantState = async (req, res, next) => {
       return res.status(404).json({ error: 'Plant not found' });
     }
 
-    // Get states for all devices at this plant
-    const states = await WaterQualityState.find({ plantId: req.params.id })
-      .populate('deviceId', 'deviceId availability');
+    const query = { plantId: req.params.id };
+    if (plant.qualityDeviceId) {
+      query.deviceId = plant.qualityDeviceId._id || plant.qualityDeviceId;
+    }
+
+    const states = await WaterQualityState.find(query).populate('deviceId', 'deviceId availability');
 
     res.json({ plant, states });
   } catch (err) {
