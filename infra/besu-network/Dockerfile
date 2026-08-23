@@ -14,10 +14,14 @@ RUN apt-get update     && apt-get install -y --no-install-recommends curl     &&
 COPY config/ /config/
 RUN chmod +x /config/bootstrap.sh
 
-# The chain lives on a mounted volume. Nothing here is persisted in the image:
-# the genesis is configuration, and the validator key arrives at boot from
-# CHAIN_VALIDATOR_KEY. See config/bootstrap.sh.
-VOLUME ["/data"]
+# The chain lives on a volume mounted at /data by whatever runs this — a bind
+# mount in compose, a managed volume on Railway. Deliberately no VOLUME
+# instruction: Railway rejects the image outright if one is present, and in
+# plain Docker it only creates surprise anonymous volumes when the mount is
+# forgotten, which hides the mistake instead of surfacing it.
+#
+# Nothing chain-specific is baked in: the genesis is configuration and the
+# validator key arrives at boot from CHAIN_VALIDATOR_KEY. See config/bootstrap.sh.
 
 EXPOSE 8545 8546
 
