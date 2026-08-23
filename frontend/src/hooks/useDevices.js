@@ -20,7 +20,11 @@ export function useDevices(filters = {}) {
 
   return useQuery({
     queryKey: ["devices", filters],
-    queryFn: () => api.get("/api/devices", { params: filters }).then((r) => r.devices)
+    queryFn: () => api.get("/api/devices", { params: filters }).then((r) => r.devices),
+    // Sockets carry the live updates; this is the safety net. A missed event —
+    // a drop, a proxy timing out an idle upgrade — otherwise leaves the screen
+    // frozen with no clue anything is wrong, and the only cure is a refresh.
+    refetchInterval: 30_000
   });
 }
 
@@ -56,11 +60,22 @@ export function useDevice(id) {
   return useQuery({
     enabled: !!id,
     queryKey: ["device", id],
-    queryFn: () => api.get(`/api/devices/${id}`).then((r) => r.device)
+    queryFn: () => api.get(`/api/devices/${id}`).then((r) => r.device),
+    // Shorter than the list: this drives the online/offline badge somebody is
+    // watching on a device page, where a stale answer is the whole complaint.
+    refetchInterval: 15_000
   });
 }
 
-export function useDeviceReadings(id, limit = 200) {
+/**
+ * Recent readings for one device.
+ *
+ * `sinceMs` bounds the window in TIME rather than row count. A device that was
+ * dead for a fortnight and came back has its newest readings crushed into a
+ * sliver of an axis spanning the whole outage — the graph then looks frozen
+ * however often it refetches, because the new points are half a pixel wide.
+ */
+export function useDeviceReadings(id, limit = 200, sinceMs = null) {
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -78,8 +93,12 @@ export function useDeviceReadings(id, limit = 200) {
 
   return useQuery({
     enabled: !!id,
-    queryKey: ["device-readings", id, limit],
-    queryFn: () => api.get(`/api/devices/${id}/readings`, { params: { limit } })
+    queryKey: ["device-readings", id, limit, sinceMs],
+    queryFn: () =>
+      api.get(`/api/devices/${id}/readings`, {
+        params: { limit, ...(sinceMs ? { since: new Date(Date.now() - sinceMs).toISOString() } : {}) }
+      }),
+    refetchInterval: 15_000
   });
 }
 

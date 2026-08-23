@@ -21,6 +21,33 @@ import { usePlants } from "../../hooks/usePlants.js";
 import { useThresholds } from "../../hooks/useThresholds.js";
 import { fmtDate, fmtNum, relTime } from "../../lib/format.js";
 
+// Windows people actually ask for. "All" keeps the old behaviour for the rare
+// case of wanting the whole history.
+const RANGES = [
+  { label: "1h", ms: 60 * 60 * 1000 },
+  { label: "24h", ms: 24 * 60 * 60 * 1000 },
+  { label: "7d", ms: 7 * 24 * 60 * 60 * 1000 },
+  { label: "All", ms: null }
+];
+
+/**
+ * Says what the series is doing, so a sensor stuck on one value reads as a
+ * stuck sensor rather than a broken chart. A flat line and a dead probe look
+ * identical otherwise.
+ */
+function describeSeries(points, key, rangeLabel) {
+  const values = points
+    .map((p) => (p.readings ? Number(p.readings[key]) : NaN))
+    .filter((v) => Number.isFinite(v));
+
+  if (!values.length) return `No ${key} readings in the last ${rangeLabel}`;
+  const distinct = new Set(values.map((v) => Math.round(v * 1000)));
+  if (distinct.size === 1) {
+    return `${values.length} readings · stuck at ${values[0]} — sensor may be faulty`;
+  }
+  return `${values.length} readings over the last ${rangeLabel}`;
+}
+
 const PARAMS = [
   { key: "pH", label: "pH", unit: "" },
   { key: "turbidity", label: "Turbidity", unit: "NTU" },
@@ -31,7 +58,8 @@ const PARAMS = [
 export default function DeviceDetailPage() {
   const { id } = useParams();
   const device = useDevice(id);
-  const readings = useDeviceReadings(id, 400);
+  const [range, setRange] = useState(RANGES[1]);
+  const readings = useDeviceReadings(id, 400, range.ms);
   const plants = usePlants();
   const globalThresholds = useThresholds();
   const plantId = device.data?.plantId?._id || device.data?.plantId;
@@ -206,17 +234,42 @@ export default function DeviceDetailPage() {
       </div>
 
       <section className="mb-6">
-        <h2 className="text-base font-semibold text-slate-900 mb-3 flex items-center gap-2">
-          <Wrench size={16} className="text-brand-600" />
-          Recent telemetry
-        </h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+            <Wrench size={16} className="text-brand-600" />
+            Recent telemetry
+          </h2>
+          {/* A window in time, not a row count. Without this the axis stretches
+              across however long the device was dead and the newest readings
+              are too narrow to see. */}
+          <div className="inline-flex rounded-lg ring-1 ring-inset ring-slate-200 overflow-hidden">
+            {RANGES.map((r) => (
+              <button
+                key={r.label}
+                onClick={() => setRange(r)}
+                aria-pressed={range.label === r.label}
+                className={
+                  "px-2.5 py-1 text-xs font-medium transition-colors " +
+                  (range.label === r.label
+                    ? "bg-brand-600 text-white"
+                    : "bg-white text-slate-600 hover:bg-slate-50")
+                }
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+        </div>
         {readings.isLoading ? (
           <Card>
             <Spinner />
           </Card>
         ) : !points.length ? (
           <Card>
-            <EmptyState title="No telemetry data" description="Charts will appear once readings arrive." />
+            <EmptyState
+              title={`No telemetry in the last ${range.label}`}
+              description="Nothing was reported in this window. Try a wider one."
+            />
           </Card>
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -224,7 +277,7 @@ export default function DeviceDetailPage() {
               <Card key={p.key}>
                 <CardHeader
                   title={p.label}
-                  subtitle={`Last ${points.length} readings`}
+                  subtitle={describeSeries(points, p.key, range.label)}
                   action={
                     <span className="text-xs text-slate-500">
                       {points[points.length - 1]?.timestamp

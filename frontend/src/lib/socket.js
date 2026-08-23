@@ -1,5 +1,6 @@
 import { io } from "socket.io-client";
 import { getBackendToken } from "./tokenStore.js";
+import { queryClient } from "./queryClient.js";
 
 const DEFAULT_BACKEND_URL = "http://localhost:4000";
 
@@ -12,6 +13,24 @@ function backendOrigin() {
 let socket = null;
 let socketToken = null;
 let publicSocket = null;
+
+/**
+ * Refetch everything when a socket comes back.
+ *
+ * Socket.io reconnects on its own, but the events emitted while it was away are
+ * gone — they are fire-and-forget broadcasts, not a replayable log. Without
+ * this, one dropped connection leaves every screen frozen at the moment the
+ * link died, and the only cure is a manual refresh. A backend redeploy or ten
+ * seconds of bad wifi is enough to do it.
+ *
+ * `connect` fires on the first connection too, which is harmless: the queries
+ * have either just been fetched or are about to be.
+ */
+function resyncOnReconnect(s) {
+  s.on("connect", () => {
+    queryClient.invalidateQueries();
+  });
+}
 
 export function getSocket() {
   const token = getBackendToken();
@@ -38,6 +57,7 @@ export function getSocket() {
     reconnectionDelayMax: 10000
   });
 
+  resyncOnReconnect(socket);
   return socket;
 }
 
