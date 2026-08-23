@@ -56,6 +56,11 @@ services:
       NODE_ENV: "development"
       DISABLE_MQTT: "true"
       SEED_FORCE: "${SEED_FORCE:-false}"
+      # Container-specific, so it must live here rather than in backend/.env:
+      # that file holds 127.0.0.1:8545, which is correct when the backend runs
+      # on the host and points at the container itself when it does not. Keys
+      # under `environment:` win over `env_file:`, which is what makes this work.
+      CHAIN_RPC_URL: "${CHAIN_RPC_URL:-http://host.docker.internal:8545}"
     command: ["node", "scripts/seed.js"]
     restart: "no"
 
@@ -82,6 +87,11 @@ services:
       CORS_ORIGINS: "*"
       NODE_ENV: "development"
       NODE_OPTIONS: "--dns-result-order=ipv4first"
+      # Container-specific, so it must live here rather than in backend/.env:
+      # that file holds 127.0.0.1:8545, which is correct when the backend runs
+      # on the host and points at the container itself when it does not. Keys
+      # under `environment:` win over `env_file:`, which is what makes this work.
+      CHAIN_RPC_URL: "${CHAIN_RPC_URL:-http://host.docker.internal:8545}"
       # MQTT stays off inside compose unless explicitly switched on; the broker
       # credentials themselves come from backend/.env.
       DISABLE_MQTT: "${DISABLE_MQTT:-true}"
