@@ -90,7 +90,11 @@ export function useAuth() {
   return ctx;
 }
 
-const ROLE_LEVEL = { PUBLIC: 0, MAINTAINER: 1, ADMIN: 2, SUPER_ADMIN: 3 };
+// Mirrors backend/src/middleware/roleGuard.js and the web app's AuthContext.
+// An unknown role scores -1, i.e. below PUBLIC — so a role missing from this
+// map does not merely lose privileges, it drops out of every branch that tests
+// for one. MANAGER was missing here and landed managers in the public app.
+const ROLE_LEVEL = { PUBLIC: 0, MAINTAINER: 1, MANAGER: 2, ADMIN: 3, SUPER_ADMIN: 4 };
 
 export function hasRole(user, minRole) {
   if (!user) return false;
