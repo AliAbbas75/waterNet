@@ -33,6 +33,12 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    # Pinned to the same tag as `backend`. Both build the identical context and
+    # differ only by `command`, but without an explicit image name compose
+    # derives one per service — so `docker compose build backend` would leave
+    # the seed container running whatever code it was last built with. Sharing
+    # the tag makes that divergence impossible; the second build is a cache hit.
+    image: watergate-backend:latest
     container_name: waternet-seed
     depends_on:
       mongo-init:
@@ -55,6 +61,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    image: watergate-backend:latest
     container_name: waternet-backend
     depends_on:
       seed:

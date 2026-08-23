@@ -36,6 +36,7 @@ const plantSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Device',
       default: null
+    },
     // Set the moment a breach is confirmed, cleared when its ticket resolves.
     // Deliberately separate from operationalStatus: there is a gap between
     // knowing the water is unsafe and someone physically reaching the site, and
