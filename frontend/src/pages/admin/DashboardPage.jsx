@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowRight,
@@ -24,7 +24,17 @@ import { useTasks } from "../../hooks/useMaintenance.js";
 import { PlantMap } from "../../components/map/PlantMap.jsx";
 import { relTime } from "../../lib/format.js";
 
+// The map colours by water-quality category; the list endpoint reports a
+// plant-level verdict. UNSAFE is the honest colour for unhealthy here: the
+// marker says "this plant is out of limits", and how far out is the plant
+// page's job, not a dot's.
+function overallFromHealth(health) {
+  if (!health || health.status === "NO_DATA") return "NO_DATA";
+  return health.status === "UNHEALTHY" ? "UNSAFE" : "SAFE";
+}
+
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const overview = useOverview();
   const alerts = useAlerts({ status: "OPEN" });
   const plants = usePlants();
@@ -35,7 +45,13 @@ export default function DashboardPage() {
   const sev = (name) => o?.alertsBySeverity?.find((x) => x._id === name)?.n || 0;
   const critical = sev("CRITICAL");
   const major = sev("MAJOR");
-  const mapPlants = (plants.data || []).map((p) => ({ plant: p, overall: "NO_DATA" }));
+  // waterHealth comes back with the plants list, so the markers can carry the
+  // real verdict. They were pinned to NO_DATA, which painted every plant grey
+  // however its water was actually reading.
+  const mapPlants = (plants.data || []).map((p) => ({
+    plant: p,
+    overall: overallFromHealth(p.waterHealth)
+  }));
 
   return (
     <>
@@ -152,7 +168,14 @@ export default function DashboardPage() {
               <Spinner />
             </div>
           ) : (
-            <PlantMap plants={mapPlants} height={360} />
+            <PlantMap
+              plants={mapPlants}
+              height={360}
+              onSelect={(p) => {
+                const id = p.plant?._id || p._id;
+                if (id) navigate(`/admin/plants/${id}`);
+              }}
+            />
           )}
         </Card>
 
