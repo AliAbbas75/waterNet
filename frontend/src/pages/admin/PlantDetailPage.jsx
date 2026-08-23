@@ -254,6 +254,7 @@ export default function PlantDetailPage() {
               key={param.key}
               param={param}
               states={state.data?.states || []}
+              focusDeviceId={savedQualityDeviceId}
               threshold={thresholdMap[param.key]}
             />
           ))}
@@ -300,38 +301,62 @@ export default function PlantDetailPage() {
   );
 }
 
-function ParameterCard({ param, states, threshold }) {
-  // Find the most recent reason for this parameter across devices, if any.
-  let worstCategory = "NO_DATA";
-  let value = null;
-  let lastEvaluated = null;
-  for (const s of states) {
-    if (lastEvaluated == null || new Date(s.lastEvaluatedAt) > new Date(lastEvaluated)) {
-      lastEvaluated = s.lastEvaluatedAt;
-    }
-    const rsn = s.reasons?.find((r) => r.parameter === param.key);
-    if (rsn) {
-      if (rsn.threshold === "unsafe") worstCategory = "UNSAFE";
-      else if (rsn.threshold === "warn" && worstCategory !== "UNSAFE") worstCategory = "WARNING";
-      value = rsn.value ?? value;
-    }
-  }
+const CATEGORY_RANK = { NO_DATA: 0, SAFE: 1, WARNING: 2, UNSAFE: 3 };
 
-  // If we didn't find a reason, infer category from overall.
-  if (worstCategory === "NO_DATA" && states.length) worstCategory = "SAFE";
+// One reading of one parameter, by one device. Keeping the value, its category
+// and the device together is the whole point: the card used to take the worst
+// category across every device but the value from whichever state happened to
+// come last, so it could show one device's number under another device's badge.
+function readingFor(state, paramKey) {
+  const reason = state.reasons?.find((r) => r.parameter === paramKey);
+  let category = "SAFE";
+  if (!reason) category = state.category === "NO_DATA" ? "NO_DATA" : "SAFE";
+  else if (reason.threshold === "unsafe") category = "UNSAFE";
+  else if (reason.threshold === "warn") category = "WARNING";
+
+  return {
+    deviceId: String(state.deviceId?._id || state.deviceId || ""),
+    deviceName: state.deviceId?.deviceId || null,
+    value: reason?.value ?? null,
+    category,
+    lastEvaluatedAt: state.lastEvaluatedAt
+  };
+}
+
+function ParameterCard({ param, states, threshold, focusDeviceId }) {
+  const readings = states.map((s) => readingFor(s, param.key));
+
+  // The card speaks for a single device: the plant's pinned quality device when
+  // there is one, otherwise the worst reading on site. That is what makes the
+  // picker mean something — before this, choosing a device changed nothing here.
+  const primary =
+    (focusDeviceId && readings.find((r) => r.deviceId === String(focusDeviceId))) ||
+    readings.slice().sort((a, b) => CATEGORY_RANK[b.category] - CATEGORY_RANK[a.category])[0] ||
+    null;
+
+  // Pinning must never bury a breach. Any device reading worse than the one on
+  // display is named here rather than silently dropped.
+  const worse = primary
+    ? readings.filter(
+        (r) => r.deviceId !== primary.deviceId && CATEGORY_RANK[r.category] > CATEGORY_RANK[primary.category]
+      )
+    : [];
+
+  const category = primary?.category || "NO_DATA";
+  const value = primary?.value ?? null;
 
   return (
     <Card>
       <div className="flex items-start justify-between">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs uppercase tracking-wide text-slate-500 font-medium">{param.label}</p>
           <p className="text-2xl font-semibold text-slate-900 mt-1">
             {value != null ? fmtNum(value, 2) : "—"}
             {value != null && param.unit ? <span className="text-base font-normal text-slate-500 ml-1">{param.unit}</span> : null}
           </p>
         </div>
-        <Badge variant={statusVariant(worstCategory)} dot>
-          {worstCategory.replace("_", " ")}
+        <Badge variant={statusVariant(category)} dot>
+          {category.replace("_", " ")}
         </Badge>
       </div>
       <p className="text-xs text-slate-500 mt-2">
@@ -340,8 +365,15 @@ function ParameterCard({ param, states, threshold }) {
           : "No threshold set"}
       </p>
       <p className="text-xs text-slate-400 mt-0.5">
-        {lastEvaluated ? `Evaluated ${relTime(lastEvaluated)}` : "Waiting on telemetry"}
+        {primary?.deviceName ? `${primary.deviceName} · ` : ""}
+        {primary?.lastEvaluatedAt ? `evaluated ${relTime(primary.lastEvaluatedAt)}` : "waiting on telemetry"}
       </p>
+      {worse.length ? (
+        <p className="text-xs text-amber-700 mt-1">
+          {worse.map((r) => r.deviceName || "another device").join(", ")} reads{" "}
+          {worse[0].category.replace("_", " ").toLowerCase()}
+        </p>
+      ) : null}
     </Card>
   );
 }

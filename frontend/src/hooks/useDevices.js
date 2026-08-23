@@ -79,7 +79,12 @@ export function useDeviceReadings(id, limit = 200) {
   return useQuery({
     enabled: !!id,
     queryKey: ["device-readings", id, limit],
-    queryFn: () => api.get(`/api/devices/${id}/readings`, { params: { limit } })
+    queryFn: () => api.get(`/api/devices/${id}/readings`, { params: { limit } }),
+    // Backstop. This used to refresh only on a telemetry:new push, while the
+    // plant state beside it polls every 30s — so whenever the socket was down
+    // or the payload did not match, the charts froze while the cards around
+    // them kept moving, and the page showed two different points in time.
+    refetchInterval: 30000
   });
 }
 
