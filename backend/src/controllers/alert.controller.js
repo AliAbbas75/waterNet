@@ -13,9 +13,15 @@ const TICKET_POPULATE = {
   populate: { path: "assignedToUserId", select: "display_name email role" }
 };
 
+const PLANT_POPULATE = {
+  path: "plantId",
+  select: "name coveringMaintainerId",
+  populate: { path: "coveringMaintainerId", select: "display_name email role active" }
+};
+
 function populate(id) {
   return Alert.findById(id)
-    .populate("plantId", "name")
+    .populate(PLANT_POPULATE)
     .populate("deviceId", "deviceId")
     .populate("inventoryItemId", "name")
     .populate(TICKET_POPULATE);
@@ -49,7 +55,7 @@ exports.getAlerts = async (req, res, next) => {
     }
 
     const alerts = await Alert.find(query)
-      .populate('plantId', 'name')
+      .populate(PLANT_POPULATE)
       .populate('deviceId', 'deviceId')
       .populate('inventoryItemId', 'name')
       .populate(TICKET_POPULATE)

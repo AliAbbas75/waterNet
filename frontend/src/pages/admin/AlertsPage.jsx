@@ -338,13 +338,20 @@ function DispatchModal({ alert, onClose, onConfirm, loading }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setAssignedToUserId(alert?.ticketId?.assignedToUserId?._id || "");
+    setAssignedToUserId(
+      alert?.ticketId?.assignedToUserId?._id ||
+        alert?.plantId?.coveringMaintainerId?._id ||
+        ""
+    );
     setNote("");
     setError("");
   }, [alert]);
 
   const ticket = alert?.ticketId;
   const ownerRole = ticket?.ownerRole || "MAINTAINER";
+  // Whoever covers this plant is the person who can be there soonest, so they
+  // are the default rather than an alphabetical accident.
+  const cover = alert?.plantId?.coveringMaintainerId || null;
 
   // The role the policy says owns this work is listed first, so the obvious
   // choice is the one under the cursor.
@@ -352,10 +359,20 @@ function DispatchModal({ alert, onClose, onConfirm, loading }) {
     const all = (users.data || []).filter(
       (u) => ["MAINTAINER", "MANAGER", "ADMIN"].includes(u.role) && u.active !== false
     );
-    const preferred = all.filter((u) => u.role === ownerRole);
-    const others = all.filter((u) => u.role !== ownerRole);
-    return { preferred, others };
-  }, [users.data, ownerRole]);
+    const coverId = cover?._id ? String(cover._id) : null;
+    const covering = all.filter((u) => String(u._id) === coverId);
+    const rest = all.filter((u) => String(u._id) !== coverId);
+    return {
+      covering,
+      preferred: rest.filter((u) => u.role === ownerRole),
+      others: rest.filter((u) => u.role !== ownerRole)
+    };
+  }, [users.data, ownerRole, cover]);
+
+  // Sending somebody outside their patch is allowed — coverage says who is
+  // responsible, not who is permitted — but it should be a visible choice.
+  const offPatch =
+    cover?._id && assignedToUserId && String(assignedToUserId) !== String(cover._id);
 
   if (!alert) return null;
 
@@ -401,6 +418,15 @@ function DispatchModal({ alert, onClose, onConfirm, loading }) {
           disabled={users.isLoading}
         >
           <option value="">{users.isLoading ? "Loading people…" : "Choose a person…"}</option>
+          {candidates.covering.length ? (
+            <optgroup label={`Covers ${alert.plantId?.name || "this plant"}`}>
+              {candidates.covering.map((u) => (
+                <option key={u._id} value={u._id}>
+                  {personName(u)}
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
           {candidates.preferred.length ? (
             <optgroup label={OWNER_GROUP_LABEL[ownerRole] || "Suggested"}>
               {candidates.preferred.map((u) => (
@@ -430,6 +456,18 @@ function DispatchModal({ alert, onClose, onConfirm, loading }) {
           placeholder="e.g. check the power supply at the cabinet before replacing the board"
         />
       </Field>
+      {offPatch ? (
+        <p className="mt-2 text-xs text-amber-700">
+          {personName(cover)} covers {alert.plantId?.name || "this plant"} and will usually
+          get there sooner.
+        </p>
+      ) : null}
+      {!cover && alert.plantId ? (
+        <p className="mt-2 text-xs text-slate-500">
+          No one covers {alert.plantId.name} yet — set it on the plant so future alerts
+          route themselves.
+        </p>
+      ) : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
     </Modal>
   );

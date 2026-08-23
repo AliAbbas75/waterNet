@@ -4,6 +4,7 @@ const Plant = require("../models/Plant");
 const Device = require("../models/Device");
 const InventoryItem = require("../models/InventoryItem");
 const { severityFor, ticketForAlert } = require("./alert.policy");
+const { graceSecondsFor } = require("./deviceHealth.service");
 const { assignTicket, cancelTicket, LIVE_TICKET_STATUSES } = require("./ticket.service");
 const { logAudit } = require("./audit.service");
 const { emit: socketEmit } = require("./socket.service");
@@ -30,25 +31,69 @@ function scopeOf(alert) {
   };
 }
 
+function humanDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"}`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours} hour${hours === 1 ? "" : "s"}`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
+
 /**
- * Names for the ticket title and description. Detection paths pass this in
- * because they already hold the documents; a person acting on an older alert
- * does not, so it is rebuilt from the alert's own references.
+ * The names AND the evidence behind an alert.
+ *
+ * Detection paths pass what they already hold; everything else is read back
+ * from the alert's own references, so a ticket opened when somebody assigns a
+ * two-hour-old alert carries the same detail as one raised automatically.
+ *
+ * Times are rendered here rather than stored raw because they are a record of
+ * what was true when the alert fired — "silent for 41 minutes" answers a
+ * different question an hour later than a live lookup would.
  */
 async function contextForAlert(alert) {
   const ctx = {};
+  const raisedAt = alert.createdAt ? new Date(alert.createdAt) : new Date();
+
   if (alert.plantId) {
     const plant = await Plant.findById(alert.plantId).select("name").lean();
     if (plant) ctx.plantName = plant.name;
   }
+
   if (alert.deviceId) {
-    const device = await Device.findById(alert.deviceId).select("deviceId").lean();
-    if (device) ctx.deviceName = device.deviceId;
+    const device = await Device.findById(alert.deviceId)
+      .select("deviceId lastSeenAt expectedIntervalSeconds availabilityFlips flappingSince")
+      .lean();
+    if (device) {
+      ctx.deviceName = device.deviceId;
+      if (device.lastSeenAt) {
+        ctx.lastSeenAt = new Date(device.lastSeenAt).toISOString();
+        ctx.silentFor = humanDuration(raisedAt - new Date(device.lastSeenAt));
+      }
+      if (device.expectedIntervalSeconds) {
+        ctx.expectedInterval = `${device.expectedIntervalSeconds}s`;
+        ctx.gracePeriod = `${graceSecondsFor(device)}s`;
+      }
+      if (Array.isArray(device.availabilityFlips) && device.availabilityFlips.length) {
+        ctx.flips = device.availabilityFlips.length;
+        ctx.flapWindow = `${process.env.DEVICE_FLAP_WINDOW_MINUTES || 15} minutes`;
+      }
+      if (device.flappingSince) ctx.flappingSince = new Date(device.flappingSince).toISOString();
+    }
   }
+
   if (alert.inventoryItemId) {
-    const item = await InventoryItem.findById(alert.inventoryItemId).select("name").lean();
-    if (item) ctx.itemName = item.name;
+    const item = await InventoryItem.findById(alert.inventoryItemId)
+      .select("name quantity reorderThreshold unit")
+      .lean();
+    if (item) {
+      ctx.itemName = item.name;
+      ctx.quantity = `${item.quantity} ${item.unit || "units"}`;
+      ctx.reorderThreshold = `${item.reorderThreshold} ${item.unit || "units"}`;
+    }
   }
+
   return ctx;
 }
 
@@ -137,10 +182,14 @@ async function openTicketForAlert(
   context = {},
   { force = false, openedBy = null, req = null, reason = null } = {}
 ) {
-  const spec = ticketForAlert(alert, context, { force });
+  // What the caller knew wins, but anything it did not supply is read back from
+  // the alert's own references — so a ticket never opens with a blank record
+  // just because the detection path was terse.
+  const fullContext = { ...(await contextForAlert(alert)), ...context };
+  const spec = ticketForAlert(alert, fullContext, { force });
   if (!spec) return null;
 
-  const { checklist, ...fields } = spec;
+  const { checklist, diagnostics, ...fields } = spec;
 
   // A condition returning after its ticket closed gets a new ticket linked to
   // the last one, rather than reopening it. Each response stays cleanly
@@ -160,6 +209,7 @@ async function openTicketForAlert(
     ...fields,
     previousTicketId: previous?._id || null,
     recurrenceCount: previous ? (previous.recurrenceCount || 0) + 1 : 0,
+    diagnostics: diagnostics || [],
     checklist: (checklist || []).map((item) =>
       typeof item === "string" ? { label: item, done: false } : { ...item, done: false }
     )
@@ -206,8 +256,7 @@ async function ensureTicketForAlert(alert, { actorUserId = null, req = null, rea
     }
   }
 
-  const ctx = await contextForAlert(alert);
-  const ticket = await openTicketForAlert(alert, ctx, {
+  const ticket = await openTicketForAlert(alert, {}, {
     force: true,
     openedBy: actorUserId,
     req,

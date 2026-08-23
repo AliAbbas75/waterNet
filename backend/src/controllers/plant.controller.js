@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Plant = require("../models/Plant");
 const Device = require("../models/Device");
+const User = require("../models/User");
 const { emit: socketEmit } = require("../services/socket.service");
 const { raiseAlert, clearAlerts } = require("../services/alert.service");
 const { logAudit } = require("../services/audit.service");
@@ -22,7 +23,9 @@ exports.getPlants = async (req, res, next) => {
       ];
     }
 
-    const plants = await Plant.find(query).sort({ createdAt: -1 });
+    const plants = await Plant.find(query)
+      .populate('coveringMaintainerId', 'display_name email role active')
+      .sort({ createdAt: -1 });
 
     // Batched into a single aggregation so the list does not fan out per plant.
     const consumption = await getConsumptionForPlants(plants);
@@ -39,10 +42,9 @@ exports.getPlants = async (req, res, next) => {
 
 exports.getPlant = async (req, res, next) => {
   try {
-    const plant = await Plant.findById(req.params.id).populate(
-      'qualityDeviceId',
-      'deviceId status availability plantId'
-    );
+    const plant = await Plant.findById(req.params.id)
+      .populate('qualityDeviceId', 'deviceId status availability plantId')
+      .populate('coveringMaintainerId', 'display_name email role active');
     if (!plant) {
       return res.status(404).json({ error: 'Plant not found' });
     }
@@ -69,7 +71,16 @@ exports.getPlantConsumptionMetrics = async (req, res, next) => {
 
 exports.createPlant = async (req, res, next) => {
   try {
-    const { name, address, geo, operationalStatus, operatingHours, tankCapacityLitres } = req.body;
+    const {
+      name,
+      address,
+      geo,
+      operationalStatus,
+      operatingHours,
+      tankCapacityLitres,
+      qualityDeviceId,
+      coveringMaintainerId
+    } = req.body;
 
     if (!name || !address || !geo || !geo.lat || !geo.lng) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -129,6 +140,22 @@ exports.updatePlant = async (req, res, next) => {
       }
     }
 
+    // Coverage is who answers for this site. Only somebody who can actually
+    // hold a work order may be named, or the picker would offer an assignee the
+    // dispatch endpoint then refuses.
+    if (coveringMaintainerId) {
+      if (!mongoose.Types.ObjectId.isValid(coveringMaintainerId)) {
+        return res.status(400).json({ error: 'coveringMaintainerId must be a valid user id' });
+      }
+      const cover = await User.findById(coveringMaintainerId).select('role active display_name');
+      if (!cover || !['MAINTAINER', 'MANAGER', 'ADMIN'].includes(cover.role)) {
+        return res.status(400).json({ error: 'Coverage must be a maintainer, manager or admin' });
+      }
+      if (cover.active === false) {
+        return res.status(400).json({ error: 'That account is suspended and cannot cover a plant' });
+      }
+    }
+
     const statusChanging = operationalStatus && operationalStatus !== previous.operationalStatus;
 
     // Manual status changes stay available — planned maintenance is a
@@ -159,10 +186,35 @@ exports.updatePlant = async (req, res, next) => {
         operationalStatus,
         operatingHours,
         ...(tankCapacityLitres !== undefined ? { tankCapacityLitres } : {}),
-        ...(qualityDeviceId !== undefined ? { qualityDeviceId: qualityDeviceId || null } : {})
+        ...(qualityDeviceId !== undefined ? { qualityDeviceId: qualityDeviceId || null } : {}),
+        ...(coveringMaintainerId !== undefined
+          ? { coveringMaintainerId: coveringMaintainerId || null }
+          : {})
       },
       { new: true, runValidators: true }
-    ).populate('qualityDeviceId', 'deviceId status availability plantId');
+    )
+      .populate('qualityDeviceId', 'deviceId status availability plantId')
+      .populate('coveringMaintainerId', 'display_name email role active');
+
+    if (
+      coveringMaintainerId !== undefined &&
+      String(previous.coveringMaintainerId || '') !== String(coveringMaintainerId || '')
+    ) {
+      await logAudit({
+        event: 'plant.coverage_changed',
+        req,
+        actorUserId: req.user?._id || null,
+        targetType: 'PLANT',
+        targetId: plant._id,
+        meta: {
+          plantName: plant.name,
+          from: previous.coveringMaintainerId ? String(previous.coveringMaintainerId) : null,
+          to: plant.coveringMaintainerId
+            ? plant.coveringMaintainerId.display_name || String(plant.coveringMaintainerId._id)
+            : null
+        }
+      });
+    }
 
     const prevStatus = previous.operationalStatus;
     const newStatus = plant.operationalStatus;
