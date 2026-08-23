@@ -9,8 +9,13 @@ export function useTasks(filters = {}) {
   useEffect(() => {
     const s = getSocket();
     if (!s) return;
-    const handler = () => qc.invalidateQueries({ queryKey: ["tasks"] });
+    // Both keys, or the plant page and the board disagree about what just
+    // happened. The second call used to sit outside the arrow function, so it
+    // ran once when the hook mounted and never again on an actual event.
+    const handler = () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
       qc.invalidateQueries({ queryKey: ["task-board"] });
+    };
     s.on("task:updated", handler);
     return () => s.off("task:updated", handler);
   }, [qc]);
@@ -42,7 +47,11 @@ export function useTaskBoard(filters = {}) {
   return useQuery({
     queryKey: ["task-board", filters],
     queryFn: () => api.get("/api/maintenance/tasks", { params: filters }),
-    placeholderData: (prev) => prev
+    placeholderData: (prev) => prev,
+    // Sockets carry the live updates; this is the safety net. A missed event —
+    // a drop, a proxy timing out an idle upgrade — otherwise leaves the screen
+    // frozen with no clue anything is wrong, and the only cure is a refresh.
+    refetchInterval: 30_000
   });
 }
 
@@ -59,7 +68,8 @@ export function useMyTasks() {
 
   return useQuery({
     queryKey: ["my-tasks"],
-    queryFn: () => api.get("/api/maintenance/tasks/mine").then((r) => r.tasks)
+    queryFn: () => api.get("/api/maintenance/tasks/mine").then((r) => r.tasks),
+    refetchInterval: 30_000
   });
 }
 

@@ -24,7 +24,11 @@ export function useAlerts(filters = {}) {
 
   return useQuery({
     queryKey: ["alerts", filters],
-    queryFn: () => api.get("/api/alerts", { params: filters }).then((r) => r.alerts)
+    queryFn: () => api.get("/api/alerts", { params: filters }).then((r) => r.alerts),
+    // Sockets carry the live updates; this is the safety net. A missed event —
+    // a drop, a proxy timing out an idle upgrade — otherwise leaves the screen
+    // frozen with no clue anything is wrong, and the only cure is a refresh.
+    refetchInterval: 30_000
   });
 }
 

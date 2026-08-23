@@ -1,0 +1,31 @@
+{
+  "cli": {
+    "version": ">= 5.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "preview": {
+      // Internal distribution: EAS hosts the finished APK behind a QR code and
+      // install link rather than only a dashboard download, which is what makes
+      // it installable straight onto a phone with no cable and no Play Store.
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "https://backend-production-3fdc.up.railway.app"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "https://backend-production-3fdc.up.railway.app"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

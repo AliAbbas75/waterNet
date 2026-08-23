@@ -70,4 +70,12 @@ infra/besu-network/data/
 infra/besu-network/generated/
 
 # Local engineering journal — working notes, not published.
-docs/
+#
+# Anchored with a leading slash so it means THIS docs folder and not every
+# directory called docs. Unanchored, it also matched backend/src/docs/, which
+# holds the OpenAPI spec index.js requires at startup. Git itself still tracked
+# that file — a tracked file is exempt from ignore rules — but tools that apply
+# .gitignore patterns literally do not make that exception, so Railway's
+# uploader dropped it and the backend crashed on boot with
+# "Cannot find module './docs/openapi'".
+/docs/

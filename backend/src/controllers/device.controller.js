@@ -208,9 +208,22 @@ exports.getDeviceReadings = async (req, res, next) => {
     if (!device) {
       return res.status(404).json({ error: "Device not found" });
     }
-    const readings = await TelemetryReading.find({
-      $or: [{ deviceRef: device._id }, { deviceId: device.deviceId }]
-    })
+
+    const query = { $or: [{ deviceRef: device._id }, { deviceId: device.deviceId }] };
+
+    // A time window, not just a row count. "The last 400 readings" for a device
+    // that was dead for a fortnight spans the whole outage, so the newest
+    // points end up a fraction of a pixel wide and the chart looks frozen no
+    // matter how often it refetches.
+    if (req.query.since) {
+      const since = new Date(req.query.since);
+      if (Number.isNaN(since.getTime())) {
+        return res.status(400).json({ error: "since must be an ISO date" });
+      }
+      query.timestamp = { $gte: since };
+    }
+
+    const readings = await TelemetryReading.find(query)
       .sort({ timestamp: -1 })
       .limit(limit);
 

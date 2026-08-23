@@ -5,6 +5,7 @@ const Device = require("../models/Device");
 const InventoryItem = require("../models/InventoryItem");
 const { severityFor, ticketForAlert } = require("./alert.policy");
 const { graceSecondsFor } = require("./deviceHealth.service");
+const { summariseWindow } = require("./metricsWindow.service");
 const { assignTicket, cancelTicket, LIVE_TICKET_STATUSES } = require("./ticket.service");
 const { logAudit } = require("./audit.service");
 const { emit: socketEmit } = require("./socket.service");
@@ -205,8 +206,24 @@ async function openTicketForAlert(
     .select("_id recurrenceCount")
     .lean();
 
+  // The 24h window travels with the ticket. Best-effort: a summary that cannot
+  // be built is not a reason to refuse to raise the work order.
+  let metricsWindow = null;
+  if (alert.deviceId || alert.plantId) {
+    try {
+      metricsWindow = await summariseWindow({
+        deviceRef: alert.deviceId || null,
+        plantId: alert.plantId || null,
+        at: alert.createdAt || new Date()
+      });
+    } catch (err) {
+      console.error("Could not summarise the metrics window:", err?.message || err);
+    }
+  }
+
   const task = await MaintenanceTask.create({
     ...fields,
+    metricsWindow,
     previousTicketId: previous?._id || null,
     recurrenceCount: previous ? (previous.recurrenceCount || 0) + 1 : 0,
     diagnostics: diagnostics || [],

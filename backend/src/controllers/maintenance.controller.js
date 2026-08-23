@@ -8,7 +8,7 @@ const { checkLowStock } = require("../services/inventory.service");
 const { logAudit } = require("../services/audit.service");
 const { clearAdvisory, resolveAlertForTicket } = require("../services/alert.service");
 const { assignTicket } = require("../services/ticket.service");
-const { statusesForPhase } = require("../services/taskPhase");
+const { statusesForPhase, PHASE_GROUPS } = require("../services/taskPhase");
 const Plant = require("../models/Plant");
 
 // Admin: Create task
@@ -150,12 +150,30 @@ exports.getTasks = async (req, res, next) => {
     } else if (status) {
       query.status = status;
     }
-    if (plantId) query.plantId = plantId;
-    if (deviceId) query.deviceId = deviceId;
+    // Cast every id filter explicitly. This list is served by an aggregation,
+    // and $match does NOT apply schema casting the way find() and count() do —
+    // a plain string never matches a stored ObjectId, so the pipeline silently
+    // returned nothing while countDocuments (which does cast) reported the real
+    // total. That is what left the plant page saying "no work orders" over a
+    // non-zero count, and what made filtering by assignee come back empty.
+    let impossible = false;
+    const objectId = (value) => {
+      if (!mongoose.Types.ObjectId.isValid(value)) {
+        // A malformed id matches nothing. Say so with an empty page rather than
+        // a 500 — it arrives from a query string, so it is bad input, not a bug.
+        impossible = true;
+        return null;
+      }
+      return new mongoose.Types.ObjectId(String(value));
+    };
+
+    if (plantId) query.plantId = objectId(plantId);
+    if (deviceId) query.deviceId = objectId(deviceId);
     if (severity) query.severity = severity;
     if (origin) query.origin = origin;
     if (assignedToUserId) {
-      query.assignedToUserId = assignedToUserId === 'none' ? null : assignedToUserId;
+      query.assignedToUserId =
+        assignedToUserId === 'none' ? null : objectId(assignedToUserId);
     }
     if (search) {
       const rx = new RegExp(String(search).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
@@ -185,7 +203,11 @@ exports.getTasks = async (req, res, next) => {
       oldest: { createdAt: 1 },
       updated: { updatedAt: -1 }
     };
-    const sortSpec = SORTS[sort] || SORTS.urgent;
+    // Finished work sorts below live work in every order. Sorting on severity
+    // alone floated a resolved CRITICAL above an untouched MINOR, so the top of
+    // the queue filled with jobs nobody had to do anything about and the open
+    // ones were pushed off the first page.
+    const sortSpec = { openRank: 1, ...(SORTS[sort] || SORTS.urgent) };
 
     const pipeline = [
       { $match: query },
@@ -200,7 +222,8 @@ exports.getTasks = async (req, res, next) => {
               ],
               default: 3
             }
-          }
+          },
+          openRank: { $cond: [{ $in: ['$status', PHASE_GROUPS.OPEN] }, 0, 1] }
         }
       },
       { $sort: sortSpec }
@@ -211,11 +234,28 @@ exports.getTasks = async (req, res, next) => {
     const perPage = limit ? Math.min(200, Math.max(1, parseInt(limit, 10) || 25)) : null;
     const currentPage = Math.max(1, parseInt(page, 10) || 1);
 
+    // A filter that cannot match anything short-circuits here. Running it would
+    // work, but only by accident: null is a real stored value for assignee, so
+    // a malformed id would quietly return the unrouted queue instead of nothing.
+    if (impossible) {
+      return res.json({ tasks: [], total: 0, page: 1, pages: 1, counts: {} });
+    }
+
+    // The tab counts drop the status filter but keep everything else. Keeping
+    // the status filter would make every tab except the selected one read 0;
+    // dropping the rest made the tabs report the whole collection, so a plant
+    // with two jobs showed "Completed 20" from other plants entirely.
+    const countQuery = { ...query };
+    delete countQuery.status;
+
     const [total, counts, rows] = await Promise.all([
       MaintenanceTask.countDocuments(query),
-      // Counts for the whole board, not the current page — a tab that says
-      // "Pending 3" when there are 24 is worse than no number at all.
-      MaintenanceTask.aggregate([{ $group: { _id: '$status', n: { $sum: 1 } } }]),
+      // Counts span the whole filtered board, not the current page — a tab that
+      // says "Pending 3" when there are 24 is worse than no number at all.
+      MaintenanceTask.aggregate([
+        { $match: countQuery },
+        { $group: { _id: '$status', n: { $sum: 1 } } }
+      ]),
       MaintenanceTask.aggregate(
         perPage
           ? [...pipeline, { $skip: (currentPage - 1) * perPage }, { $limit: perPage }]

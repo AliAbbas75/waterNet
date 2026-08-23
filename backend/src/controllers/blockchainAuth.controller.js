@@ -17,7 +17,8 @@ const {
   isActiveOnChain,
   isBlockchainEnabled,
   registerUserOnChain,
-  setRoleOnChain
+  setRoleOnChain,
+  ROLE_TO_ID
 } = require("../config/blockchain");
 
 const OTP_EXP_MINUTES = 10;
@@ -62,6 +63,21 @@ const EMAIL_HTML = (code, exp) =>
   `<p>Your WaterNet one-time login code is <strong style="font-size:1.5em">${code}</strong>.</p>` +
   `<p>It expires in ${exp} minutes. Do not share it.</p>`;
 
+// Long enough for a slow handshake, short enough that a blocked port fails
+// instead of hanging. Most cloud hosts block outbound SMTP to stop spam, and
+// nodemailer's default is to wait indefinitely — which took the whole HTTP
+// request with it and made login look broken rather than misconfigured.
+const SMTP_TIMEOUT_MS = 10_000;
+
+/**
+ * Gets the login code to the user, by whatever route is working.
+ *
+ * Each provider is tried in turn and a failure falls through to the next rather
+ * than aborting: an unreachable mail server should degrade delivery, not make
+ * the system impossible to sign in to. The console fallback is the last resort
+ * and is loud about being one — in a hosted environment it means the code is
+ * sitting in the logs where an operator has to go and read it.
+ */
 async function deliverOtp(email, code) {
   // Priority 1 — Gmail / any SMTP
   const smtpUser = process.env.SMTP_USER;
@@ -69,36 +85,55 @@ async function deliverOtp(email, code) {
   const smtpFrom = process.env.SMTP_FROM;
   if (smtpUser && smtpPass && smtpFrom) {
     const port = Number(process.env.SMTP_PORT) || 587;
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || "smtp.gmail.com",
-      port,
-      secure: port === 465,
-      auth: { user: smtpUser, pass: smtpPass }
-    });
-    await transporter.sendMail({
-      from: smtpFrom,
-      to: email,
-      subject: "Your WaterNet login code",
-      html: EMAIL_HTML(code, OTP_EXP_MINUTES)
-    });
-    return;
+    try {
+      const transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST || "smtp.gmail.com",
+        port,
+        secure: port === 465,
+        auth: { user: smtpUser, pass: smtpPass },
+        connectionTimeout: SMTP_TIMEOUT_MS,
+        greetingTimeout: SMTP_TIMEOUT_MS,
+        socketTimeout: SMTP_TIMEOUT_MS
+      });
+      await transporter.sendMail({
+        from: smtpFrom,
+        to: email,
+        subject: "Your WaterNet login code",
+        html: EMAIL_HTML(code, OTP_EXP_MINUTES)
+      });
+      return;
+    } catch (err) {
+      console.error(
+        `OTP delivery over SMTP failed (${err.code || err.message}). ` +
+          `Outbound SMTP is blocked on most cloud hosts — use an HTTPS mail API instead.`
+      );
+    }
   }
 
-  // Priority 2 — Resend
+  // Priority 2 — Resend. An HTTPS API, so it works where port 587 does not.
   const resendKey = process.env.RESEND_API_KEY;
   const resendFrom = process.env.RESEND_FROM;
   if (resendKey && resendFrom) {
-    const resend = new Resend(resendKey);
-    await resend.emails.send({
-      from: resendFrom,
-      to: email,
-      subject: "Your WaterNet login code",
-      html: EMAIL_HTML(code, OTP_EXP_MINUTES)
-    });
-    return;
+    try {
+      const resend = new Resend(resendKey);
+      await resend.emails.send({
+        from: resendFrom,
+        to: email,
+        subject: "Your WaterNet login code",
+        html: EMAIL_HTML(code, OTP_EXP_MINUTES)
+      });
+      return;
+    } catch (err) {
+      console.error(`OTP delivery over Resend failed: ${err.message}`);
+    }
   }
 
-  // Fallback — log to console (dev only)
+  // Last resort — the code goes to the logs. Deliberately not silent: if this
+  // fires in a deployed environment, mail is misconfigured and every login now
+  // requires somebody with log access.
+  console.warn(
+    `[OTP FALLBACK] No mail provider delivered the code — reading it from logs is the only way in.`
+  );
   console.log(`OTP for ${email}: ${code}`);
 }
 
@@ -313,7 +348,18 @@ exports.verifyChallenge = async (req, res, next) => {
       return res.status(403).json({ ok: false, error: "Account disabled", requestId: req.requestId });
     }
 
-    user.role = chainRole;
+    // The registry stores four roles; this app has five. MANAGER is written
+    // on-chain as the maintainer grade, so reading it straight back would demote
+    // every manager to MAINTAINER on login — and persist it.
+    //
+    // The chain is still authoritative about privilege. It just cannot express
+    // the distinction, so when the stored role encodes to the same id the chain
+    // reports, the two agree and the more specific local role stands. Only a
+    // genuine disagreement overwrites.
+    const agrees = ROLE_TO_ID[user.role] === ROLE_TO_ID[chainRole];
+    if (!agrees) {
+      user.role = chainRole;
+    }
     user.active = chainActive;
     user.last_login_at = new Date();
     await user.save();

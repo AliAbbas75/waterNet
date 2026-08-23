@@ -39,6 +39,22 @@ export function AuthProvider({ children }) {
     };
   }, [refresh]);
 
+  /**
+   * Create a PUBLIC account and send its first code.
+   *
+   * The backend generates the wallet and registers it on chain, so there is
+   * nothing for a citizen to set up beyond an email — which is the point: the
+   * people this is for are reporting a smell or a colour from a standpipe, not
+   * managing keys.
+   */
+  const register = useCallback(async (email, displayName) => {
+    await api.post(
+      "/api/auth/register",
+      { email, ...(displayName ? { displayName } : {}) },
+      { auth: false }
+    );
+  }, []);
+
   const sendOtp = useCallback(async (email) => {
     await api.post("/api/auth/send-otp", { email }, { auth: false });
   }, []);
@@ -77,8 +93,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, status, refresh, sendOtp, blockchainLogin, logout }),
-    [user, status, refresh, sendOtp, blockchainLogin, logout]
+    () => ({ user, status, refresh, register, sendOtp, blockchainLogin, logout }),
+    [user, status, refresh, register, sendOtp, blockchainLogin, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
